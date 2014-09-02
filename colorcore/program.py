@@ -132,7 +132,7 @@ class Router:
         self._parser = argparse.ArgumentParser(description=description)
         subparsers = self._parser.add_subparsers()
 
-        subparser = subparsers.add_parser("server", help="Starts the Colorcore JSON/RPC server")
+        subparser = subparsers.add_parser("server", help="Starts the Colorcore JSON/RPC server.")
         subparser.set_defaults(_func=self.run_rpc_server)
 
         for name, function in inspect.getmembers(self.controller, predicate=inspect.isfunction):

@@ -46,7 +46,7 @@ class Controller(object):
         minconf: "The minimum number of confirmations (inclusive)"="1",
         maxconf: "The maximum number of confirmations (inclusive)"="9999999"
     ):
-        """Obtains the balance of the wallet or an address"""
+        """Obtains the balance of the wallet or an address."""
         client = self._create_client()
         result = client.listunspent(self._as_int(minconf), self._as_int(maxconf), [address] if address else None)
         engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
@@ -140,7 +140,7 @@ class Controller(object):
             'signed' for signing the transaction without broadcasting,
             'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
     ):
-        """Creates a transaction for sending an asset from an address to another."""
+        """Creates a transaction for issuing an asset."""
         client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = self._get_unspent_outputs(client, address)
