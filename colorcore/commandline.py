@@ -55,8 +55,8 @@ def controller(configuration):
         for script, group in itertools.groupby(colored_outputs, lambda output: output.scriptPubKey):
             script_outputs = list(group)
             total_value = sum([item.nValue for item in script_outputs]) / bitcoin.core.COIN
-            base58 = get_p2a_address_from_script(script)
-            table.add_row([base58, "Bitcoin", str(total_value)])
+            base58 = script_to_base58_p2a(script)
+            table.add_row([base58, "Bitcoin", '%f' % total_value])
 
             for asset_address, outputs in itertools.groupby(script_outputs, lambda output: output.asset_address):
                 if asset_address is not None:
@@ -87,8 +87,41 @@ def controller(configuration):
 
         transaction = builder.transfer_bitcoin(
             colored_outputs,
-            get_script_from_p2a_address(address),
-            get_script_from_p2a_address(to),
+            base58_to_p2a_script(address),
+            base58_to_p2a_script(to),
+            as_int(amount),
+            fees)
+
+        result = process_transaction(client, transaction, mode)
+
+        print(result)
+
+    @parser.add
+    def sendasset(
+        address: "The address to send the asset from",
+        asset: "The asset address identifying the asset to send",
+        amount: "The amount of units to send",
+        to: "The address to send the asset to",
+        fees: "The fess in satoshis for the transaction"=None,
+        mode: """'broadcast' (default) for signing and broadcasting the transaction,
+            'signed' for signing the transaction without broadcasting,
+            'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
+    ):
+        """Creates a transaction for sending an asset from an address to another."""
+        client = create_client()
+        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
+        colored_outputs = get_unspent_outputs(client, address)
+
+        if fees is None:
+            fees = configuration.default_fees
+        else:
+            fees = as_int(fees)
+
+        transaction = builder.transfer_assets(
+            colored_outputs,
+            base58_to_p2a_script(address),
+            base58_to_p2a_script(to),
+            base58_to_asset_address(asset),
             as_int(amount),
             fees)
 
@@ -131,7 +164,7 @@ def controller(configuration):
         except ValueError:
             raise CommandLineError("Value '{}' is not a valid integer.".format(value))
 
-    def get_p2a_address_from_script(script):
+    def script_to_base58_p2a(script):
         script_object = bitcoin.core.CScript(script)
         try:
             opcodes = list(script_object.raw_iter())
@@ -145,10 +178,13 @@ def controller(configuration):
 
         return "Unknown script"
 
-    def get_script_from_p2a_address(base58_address):
+    def base58_to_p2a_script(base58_address):
         address_bytes = bitcoin.base58.CBase58Data(base58_address).to_bytes()
         return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address_bytes) \
             + bytes([0x88, 0xac])
+
+    def base58_to_asset_address(base58_address):
+        return bitcoin.base58.CBase58Data(base58_address).to_bytes()
 
     def get_base85_color_address(asset_address):
         return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, configuration.p2sh_version_byte))
