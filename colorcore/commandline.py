@@ -25,10 +25,12 @@
 import argparse
 import bitcoin.base58
 import bitcoin.core
+import bitcoin.core.script
 import bitcoin.rpc
 import inspect
 import itertools
 import openassets.protocol
+import openassets.transactions
 import prettytable
 
 def controller(configuration):
@@ -40,14 +42,13 @@ def controller(configuration):
     def getbalance(
             address: "Obtain the balance of this address only"=None,
             minconf: "The minimum number of confirmations (inclusive)"="1",
-            maxconf: "The maximum number of confirmations (inclusive)"="9999999"):
+            maxconf: "The maximum number of confirmations (inclusive)"="9999999"
+    ):
         """Obtains the balance of the wallet or an address"""
         client = create_client()
         result = client.listunspent(as_int(minconf), as_int(maxconf), [address] if address else None)
-
-        coloring_engine = create_coloring_engine(client)
-
-        colored_outputs = [coloring_engine.get_output(item["outpoint"].hash, item["outpoint"].n) for item in result]
+        engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
+        colored_outputs = [engine.get_output(item["outpoint"].hash, item["outpoint"].n) for item in result]
 
         table = prettytable.PrettyTable(["Address", "Asset", "Quantity"])
 
@@ -64,13 +65,65 @@ def controller(configuration):
 
         print(table)
 
+    @parser.add
+    def sendbitcoin(
+        address: "The address to send the bitcoins from",
+        amount: "The amount of satoshis to send",
+        to: "The address to send the bitcoins to",
+        fees: "The fess in satoshis for the transaction" = None,
+        mode: """'broadcast' (default) for signing and broadcasting the transaction,
+            'signed' for signing the transaction without broadcasting,
+            'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
+    ):
+        """Creates a transaction for sending bitcoins from an address to another."""
+        client = create_client()
+        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
+        colored_outputs = get_unspent_outputs(client, address)
+
+        if fees is None:
+            fees = configuration.default_fees
+        else:
+            fees = as_int(fees)
+
+        transaction = builder.transfer_bitcoin(
+            colored_outputs,
+            get_script_from_p2a_address(address),
+            get_script_from_p2a_address(to),
+            as_int(amount),
+            fees)
+
+        result = process_transaction(client, transaction, mode)
+
+        print(result)
+
     # Helpers
 
     def create_client():
         return bitcoin.rpc.Proxy(configuration.rpc_url)
 
-    def create_coloring_engine(client):
-        return openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
+    def get_unspent_outputs(client, address):
+        engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
+        result = client.listunspent(addrs=[address] if address else None)
+        return [
+            openassets.transactions.SpendableOutput(
+            bitcoin.core.COutPoint(item['outpoint'].hash, item['outpoint'].n),
+            engine.get_output(item['outpoint'].hash, item['outpoint'].n)) for item in result]
+
+    def process_transaction(client, transaction, mode):
+        if mode == 'broadcast' or mode == 'signed':
+            # Sign the transaction
+            signed_transaction = client.signrawtransaction(transaction)
+            if not signed_transaction['complete']:
+                raise CommandLineError("Could not sign the transaction.")
+
+            if mode == 'broadcast':
+                result = client.sendrawtransaction(signed_transaction['tx'])
+                return bitcoin.core.b2lx(result)
+            else:
+                return bitcoin.core.b2x(signed_transaction['tx'].serialize())
+        else:
+            # Return the transaction in raw format as a hex string
+            return bitcoin.core.b2x(transaction.serialize())
 
     def as_int(value):
         try:
@@ -91,6 +144,11 @@ def controller(configuration):
             return str(bitcoin.base58.CBase58Data.from_bytes(data, configuration.version_byte))
 
         return "Unknown script"
+
+    def get_script_from_p2a_address(base58_address):
+        address_bytes = bitcoin.base58.CBase58Data(base58_address).to_bytes()
+        return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address_bytes) \
+            + bytes([0x88, 0xac])
 
     def get_base85_color_address(asset_address):
         return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, configuration.p2sh_version_byte))

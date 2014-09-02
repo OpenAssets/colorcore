@@ -41,4 +41,5 @@ class Configuration():
         self.rpc_url = parser["bitcoind"]["rpcurl"]
         self.version_byte = int(parser["environment"]["version-byte"])
         self.p2sh_version_byte = int(parser["environment"]["p2sh-version-byte"])
-
+        self.dust_limit = int(parser["environment"]["dust-limit"])
+        self.default_fees = int(parser["environment"]["default-fees"])
