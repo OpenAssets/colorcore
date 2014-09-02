@@ -29,6 +29,7 @@ import colorcore.operations
 import http.server
 import inspect
 import json
+import openassets.transactions
 import re
 import urllib.parse
 
@@ -97,6 +98,8 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
                 return self.error(104, 'Invalid parameters provided')
             except ControllerError as error:
                 return self.error(201, str(error))
+            except openassets.transactions.TransactionBuilderError as error:
+                return self.error(301, type(error).__name__)
 
             self.set_headers(200)
             self.json_response(result)
@@ -172,6 +175,8 @@ class Router:
 
             except ControllerError as error:
                 print("Error: {}".format(str(error)))
+            except openassets.transactions.TransactionBuilderError as error:
+                print("Error: {}".format(type(error).__name__))
 
         return decorator
 
