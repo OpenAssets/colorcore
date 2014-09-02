@@ -33,7 +33,6 @@ import itertools
 import math
 import openassets.protocol
 import openassets.transactions
-import prettytable
 
 
 class Controller(object):
@@ -71,7 +70,8 @@ class Controller(object):
                 if asset_address is not None:
                     total_quantity = sum([item.asset_quantity for item in outputs])
                     group_details['assets'].append({
-                        'assetAddress': Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
+                        'assetAddress':
+                            Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
                         'quantity': str(total_quantity)
                     })
 
@@ -204,27 +204,30 @@ class Controller(object):
                 transaction = bitcoin.core.CTransaction(
                     vin=[bitcoin.core.CTxIn(output.out_point, output.output.scriptPubKey)],
                     vout=[
-                        builder._get_colored_output(Convert.base58_to_p2a_script(address)),
+                        builder._get_colored_output(script),
                         builder._get_marker_output([amount_issued], bytes(metadata, encoding="utf-8")),
                         builder._get_uncolored_output(Convert.base58_to_p2a_script(forward_address), collected),
-                        builder._get_uncolored_output(Convert.base58_to_p2a_script(address), change)
+                        builder._get_uncolored_output(script, change)
                     ]
                 )
 
                 transactions.append(transaction)
-                summary.append([
-                    Convert.script_to_base58_p2a(script, self.configuration.version_byte),
-                    Convert.to_coin(output.output.nValue) + " BTC",
-                    Convert.to_coin(collected) + " BTC",
-                    str(amount_issued) + " Units",
-                    bitcoin.core.b2lx(bitcoin.core.serialize.Hash(transaction.serialize()))])
+                summary.append({
+                    'from': Convert.script_to_base58_p2a(script, self.configuration.version_byte),
+                    'received': Convert.to_coin(output.output.nValue) + " BTC",
+                    'collected': Convert.to_coin(collected) + " BTC",
+                    'sent': str(amount_issued) + " Units",
+                    'transaction': bitcoin.core.b2lx(output.out_point.hash)
+                })
 
-        table = prettytable.PrettyTable(['From', 'Received', 'Collected', 'Sent', 'Transaction'])
+        if mode == 'preview':
+            return summary
+        else:
+            result = []
+            for transaction in transactions:
+                result.append(self.tx_parser(self._process_transaction(client, transaction, mode)))
 
-        for row in summary:
-            table.add_row(row)
-
-        print(table)
+            return result
 
     @staticmethod
     def _calculate_distribution(output_value, price, fees, dust_limit):
