@@ -31,6 +31,7 @@ import bitcoin.rpc
 import decimal
 import inspect
 import itertools
+import math
 import openassets.protocol
 import openassets.transactions
 import prettytable
@@ -172,7 +173,7 @@ def controller(configuration):
     def distribute(
         address: "The address to distribute the asset from",
         forward_address: "The address where to forward the collected bitcoin funds",
-        ratio: "Number of outgoing asset units per incoming satoshi",
+        price: "Price of an asset unit in satoshis",
         metadata: "The metadata to embed in the transaction"="",
         fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' for signing and broadcasting the transaction,
@@ -198,17 +199,19 @@ def controller(configuration):
         for output in colored_outputs:
             incoming_transaction = client.getrawtransaction(output.out_point.hash)
             script = bytes(incoming_transaction.vout[0].scriptPubKey)
-            collected = output.output.nValue - fees - configuration.dust_limit
-            amount_issued = int(collected * as_decimal(ratio))
+            collected, amount_issued, change = calculate_distribution(
+                output.output.nValue, as_decimal(price), fees, configuration.dust_limit)
             if amount_issued > 0:
-                transaction = builder.issue(
-                    [output],
-                    base58_to_p2a_script(address),
-                    script,
-                    base58_to_p2a_script(forward_address),
-                    amount_issued,
-                    bytes(metadata, encoding="utf-8"),
-                    fees)
+                transaction = bitcoin.core.CTransaction(
+                    vin=[bitcoin.core.CTxIn(output.out_point, output.output.scriptPubKey)],
+                    vout=[
+                        builder._get_colored_output(base58_to_p2a_script(address)),
+                        builder._get_marker_output([amount_issued], bytes(metadata, encoding="utf-8")),
+                        builder._get_uncolored_output(base58_to_p2a_script(forward_address), collected),
+                        builder._get_uncolored_output(base58_to_p2a_script(address), change)
+                    ]
+                )
+
                 transactions.append(transaction)
                 summary.append([
                     script_to_base58_p2a(script),
@@ -292,6 +295,17 @@ def controller(configuration):
 
     def to_coin(satoshis):
         return '%f' % (satoshis / bitcoin.core.COIN)
+
+    def calculate_distribution(output_value, price, fees, dust_limit):
+        effective_amount = output_value - fees - dust_limit
+        units_issued = int(effective_amount / price)
+
+        collected = int(math.ceil(units_issued * price))
+        change = output_value - collected
+        if change < dust_limit:
+            collected += change
+
+        return (collected, units_issued, output_value - collected)
 
     parser.parse()
     return parser
