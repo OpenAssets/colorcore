@@ -23,9 +23,13 @@
 # SOFTWARE.
 
 import argparse
+import bitcoin.base58
+import bitcoin.core
 import bitcoin.rpc
 import inspect
+import itertools
 import openassets.protocol
+import prettytable
 
 def controller(configuration):
     parser = _Router("Colorcore: The colored coins Open Asset client")
@@ -39,14 +43,32 @@ def controller(configuration):
             maxconf: "The maximum number of confirmations (inclusive)"="9999999"):
         """Obtains the balance of the wallet or an address"""
         client = create_client()
-        result = client.listunspent(as_int(minconf), as_int(maxconf))
-        print(result)
+        result = client.listunspent(as_int(minconf), as_int(maxconf), [address] if address else None)
+
+        coloring_engine = create_coloring_engine(client)
+
+        colored_outputs = [coloring_engine.get_output(item["outpoint"].hash, item["outpoint"].n) for item in result]
+
+        table = prettytable.PrettyTable(["Address", "Asset", "Quantity"])
+
+        for script, group in itertools.groupby(colored_outputs, lambda output: output.scriptPubKey):
+            total_value = sum([item.nValue for item in group]) / bitcoin.core.COIN
+            base58 = get_p2a_address_from_script(script)
+            table.add_row([base58, "Bitcoin", str(total_value)])
+
+            for asset_address, outputs in itertools.groupby(group, lambda output: output.asset_address):
+                if asset_address is not None:
+                    pass
+
+        print(table)
 
     # Helpers
 
     def create_client():
         return bitcoin.rpc.Proxy(configuration.rpc_url)
-        #return openassets.protocol.ColoringEngine(client.gettransaction, openassets.protocol.OutputCache)
+
+    def create_coloring_engine(client):
+        return openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
 
     def as_int(value):
         try:
@@ -54,12 +76,28 @@ def controller(configuration):
         except ValueError:
             raise CommandLineError("Value '{}' is not a valid integer.".format(value))
 
+    def get_p2a_address_from_script(script):
+        script_object = bitcoin.core.CScript(script)
+        try:
+            opcodes = list(script_object.raw_iter())
+        except bitcoin.core.script.CScriptInvalidError:
+            return "Invalid script"
+
+        if len(opcodes) == 5 and opcodes[0][0] == 0x76 and opcodes[1][0] == 0xA9 \
+            and opcodes[3][0] == 0x88 and opcodes[4][0] == 0xac:
+            opcode, data, sop_idx = opcodes[2]
+            return str(bitcoin.base58.CBase58Data.from_bytes(data, configuration.version_byte))
+
+        return "Unknown script"
+
 
     parser.parse()
     return parser
 
 
 class _Router:
+    """Infrastructure for routing command line calls to the right function."""
+
     def __init__(self, description=None):
         self._parser = argparse.ArgumentParser(description=description)
         self._subparsers = self._parser.add_subparsers()

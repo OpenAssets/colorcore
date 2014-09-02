@@ -39,4 +39,6 @@ class Configuration():
         parser.read(config_path)
 
         self.rpc_url = parser["bitcoind"]["rpcurl"]
+        self.version_byte = int(parser["environment"]["version-byte"])
+        self.p2sh_version_byte = int(parser["environment"]["p2sh-version-byte"])
 
