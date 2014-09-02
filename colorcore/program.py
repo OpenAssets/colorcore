@@ -67,42 +67,42 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
         self.error(101, 'Requests must be POST')
 
     def do_POST(self):
-
-        url = re.search('^/(?P<operation>\w+)$', self.path)
-        if url is None:
-            return self.error(102, 'The request path is invalid')
-
-        operation_name = url.group('operation')
-        operation = getattr(self.server.controller, operation_name, None)
-
-        if operation_name == "" or operation_name[0] == "_" or operation is None:
-            return self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
-
-        length = int(self.headers['content-length'])
-
-        post_vars = {}
-        for key, value in urllib.parse.parse_qs(self.rfile.read(length), keep_blank_values=1).items():
-            post_vars[str(key, 'utf-8')] = str(value[0], 'utf-8')
-
-        if 'txformat' not in post_vars or post_vars['txformat'] == "json":
-            tx_parser = Router.get_transaction_json
-        else:
-            tx_parser = lambda transaction: bitcoin.core.b2x(transaction.serialize())
-
-        if 'txformat' in post_vars:
-            del post_vars['txformat']
-
-        controller = self.server.controller(self.server.configuration, tx_parser)
-
         try:
-            result = operation(controller, **post_vars)
-        except TypeError:
-            return self.error(104, 'Invalid parameters provided')
-        except ControllerError as error:
-            return self.error(201, str(error))
+            url = re.search('^/(?P<operation>\w+)$', self.path)
+            if url is None:
+                return self.error(102, 'The request path is invalid')
 
-        self.set_headers(200)
-        self.json_response(result)
+            operation_name = url.group('operation')
+            operation = getattr(self.server.controller, operation_name, None)
+
+            if operation_name == "" or operation_name[0] == "_" or operation is None:
+                return self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
+
+            length = int(self.headers['content-length'])
+
+            post_vars = {}
+            for key, value in urllib.parse.parse_qs(self.rfile.read(length), keep_blank_values=1).items():
+                post_vars[str(key, 'utf-8')] = str(value[0], 'utf-8')
+
+            tx_parser = Router.get_transaction_formatter(post_vars.get('txformat', 'json'))
+
+            if 'txformat' in post_vars:
+                del post_vars['txformat']
+
+            controller = self.server.controller(self.server.configuration, tx_parser)
+
+            try:
+                result = operation(controller, **post_vars)
+            except TypeError:
+                return self.error(104, 'Invalid parameters provided')
+            except ControllerError as error:
+                return self.error(201, str(error))
+
+            self.set_headers(200)
+            self.json_response(result)
+        except:
+            self.set_headers(500)
+            self.json_response({'error': {'code': 0, 'message': 'Internal server error'}})
 
     def set_headers(self, code):
         self.server_version = 'Colorcore/' + colorcore.__version__
@@ -113,7 +113,7 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
 
     def error(self, code, message):
         self.set_headers(400)
-        self.json_response({ 'error': { 'code': code, 'message': message } })
+        self.json_response({'error': {'code': code, 'message': message}})
 
     def json_response(self, data):
         self.wfile.write(bytes(json.dumps(data, indent=4, separators=(',', ': ')), "utf-8"))
@@ -163,17 +163,12 @@ class Router:
 
     def execute_operation(self, configuration, function):
         def decorator(*args, txformat, **kwargs):
-            if txformat == "json":
-                tx_parser = self.get_transaction_json
-            else:
-                tx_parser = lambda transaction: bitcoin.core.b2x(transaction.serialize())
-
-            controller = self.controller(configuration, tx_parser)
+            controller = self.controller(configuration, self.get_transaction_formatter(txformat))
 
             try:
                 result = function(controller, *args, **kwargs)
 
-                print(json.dumps(result, indent=4, separators=(',', ': ')))
+                print(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False))
 
             except ControllerError as error:
                 print("Error: {}".format(str(error)))
@@ -181,28 +176,33 @@ class Router:
         return decorator
 
     @staticmethod
-    def get_transaction_json(transaction):
-        return {
-            'version': transaction.nVersion,
-            'locktime': transaction.nLockTime,
-            'vin': [{
-                    'txid': bitcoin.core.b2lx(input.prevout.hash),
-                    'vout': input.prevout.n,
-                    'sequence': input.nSequence,
-                    'scriptSig': {
-                        'hex': bitcoin.core.b2x(bytes(input.scriptSig))
+    def get_transaction_formatter(format):
+        if format == "json":
+            def get_transaction_json(transaction):
+                return {
+                    'version': transaction.nVersion,
+                    'locktime': transaction.nLockTime,
+                    'vin': [{
+                            'txid': bitcoin.core.b2lx(input.prevout.hash),
+                            'vout': input.prevout.n,
+                            'sequence': input.nSequence,
+                            'scriptSig': {
+                                'hex': bitcoin.core.b2x(bytes(input.scriptSig))
+                            }
+                        }
+                        for input in transaction.vin],
+                    'vout': [{
+                        'value': output.nValue,
+                        'n': index,
+                        'scriptPubKey': {
+                            'hex': bitcoin.core.b2x(bytes(output.scriptPubKey))
+                        }
                     }
+                    for index, output in enumerate(transaction.vout)]
                 }
-                for input in transaction.vin],
-            'vout': [{
-                'value': output.nValue,
-                'n': index,
-                'scriptPubKey': {
-                    'hex': bitcoin.core.b2x(bytes(output.scriptPubKey))
-                }
-            }
-            for index, output in enumerate(transaction.vout)]
-        }
+            return get_transaction_json
+        else:
+            return lambda transaction: bitcoin.core.b2x(transaction.serialize())
 
     def run_rpc_server(self):
         if not self.configuration.rpc_enabled:

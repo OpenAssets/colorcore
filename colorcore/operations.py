@@ -52,8 +52,10 @@ class Controller(object):
         engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
         colored_outputs = [engine.get_output(item["outpoint"].hash, item["outpoint"].n) for item in result]
 
+        sorted_outputs = sorted(colored_outputs, key=lambda output: output.scriptPubKey)
+
         table = []
-        for script, group in itertools.groupby(colored_outputs, lambda output: output.scriptPubKey):
+        for script, group in itertools.groupby(sorted_outputs, lambda output: output.scriptPubKey):
             script_outputs = list(group)
             total_value = Convert.to_coin(sum([item.nValue for item in script_outputs]))
             base58 = Convert.script_to_base58_p2a(script, self.configuration.version_byte)
@@ -66,14 +68,17 @@ class Controller(object):
 
             table.append(group_details)
 
-            for asset_address, outputs in itertools.groupby(script_outputs, lambda output: output.asset_address):
-                if asset_address is not None:
-                    total_quantity = sum([item.asset_quantity for item in outputs])
-                    group_details['assets'].append({
-                        'assetAddress':
-                            Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
-                        'quantity': str(total_quantity)
-                    })
+            sorted_script_outputs = sorted(
+                [item for item in script_outputs if item.asset_address],
+                key=lambda output: output.asset_address)
+
+            for asset_address, outputs in itertools.groupby(sorted_script_outputs, lambda output: output.asset_address):
+                total_quantity = sum([item.asset_quantity for item in outputs])
+                group_details['assets'].append({
+                    'assetAddress':
+                        Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
+                    'quantity': str(total_quantity)
+                })
 
         return table
 
@@ -291,7 +296,7 @@ class Convert(object):
 
     @staticmethod
     def to_coin(satoshis):
-        return '%f' % (satoshis / bitcoin.core.COIN)
+        return '{0:.8f}'.format(decimal.Decimal(satoshis) / decimal.Decimal(bitcoin.core.COIN))
 
     @staticmethod
     def base58_to_p2a_script(base58_address):
