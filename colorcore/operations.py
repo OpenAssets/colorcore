@@ -22,54 +22,62 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import argparse
 import bitcoin.base58
 import bitcoin.core
 import bitcoin.core.serialize
 import bitcoin.core.script
 import bitcoin.rpc
+import colorcore.program
 import decimal
-import inspect
 import itertools
 import math
 import openassets.protocol
 import openassets.transactions
 import prettytable
 
-def controller(configuration):
-    parser = _Router("Colorcore: The colored coins Open Asset client")
 
-    # Commands
+class Controller(object):
 
-    @parser.add
-    def getbalance(
-            address: "Obtain the balance of this address only"=None,
-            minconf: "The minimum number of confirmations (inclusive)"="1",
-            maxconf: "The maximum number of confirmations (inclusive)"="9999999"
+    def __init__(self, configuration, tx_parser):
+        self.configuration = configuration
+        self.tx_parser = tx_parser
+
+    def getbalance(self,
+        address: "Obtain the balance of this address only"=None,
+        minconf: "The minimum number of confirmations (inclusive)"="1",
+        maxconf: "The maximum number of confirmations (inclusive)"="9999999"
     ):
         """Obtains the balance of the wallet or an address"""
-        client = create_client()
-        result = client.listunspent(as_int(minconf), as_int(maxconf), [address] if address else None)
+        client = self._create_client()
+        result = client.listunspent(self._as_int(minconf), self._as_int(maxconf), [address] if address else None)
         engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
         colored_outputs = [engine.get_output(item["outpoint"].hash, item["outpoint"].n) for item in result]
 
-        table = prettytable.PrettyTable(["Address", "Asset", "Quantity"])
-
+        table = []
         for script, group in itertools.groupby(colored_outputs, lambda output: output.scriptPubKey):
             script_outputs = list(group)
-            total_value = to_coin(sum([item.nValue for item in script_outputs]))
-            base58 = script_to_base58_p2a(script)
-            table.add_row([base58, "Bitcoin", total_value])
+            total_value = Convert.to_coin(sum([item.nValue for item in script_outputs]))
+            base58 = Convert.script_to_base58_p2a(script, self.configuration.version_byte)
+
+            group_details = {
+                'address': base58,
+                'satoshiValue': total_value,
+                'assets': []
+            }
+
+            table.append(group_details)
 
             for asset_address, outputs in itertools.groupby(script_outputs, lambda output: output.asset_address):
                 if asset_address is not None:
                     total_quantity = sum([item.asset_quantity for item in outputs])
-                    table.add_row([base58, asset_address_to_base58(asset_address), str(total_quantity)])
+                    group_details['assets'].append({
+                        'assetAddress': Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
+                        'quantity': str(total_quantity)
+                    })
 
-        print(table)
+        return table
 
-    @parser.add
-    def sendbitcoin(
+    def sendbitcoin(self,
         address: "The address to send the bitcoins from",
         amount: "The amount of satoshis to send",
         to: "The address to send the bitcoins to",
@@ -79,28 +87,25 @@ def controller(configuration):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
     ):
         """Creates a transaction for sending bitcoins from an address to another."""
-        client = create_client()
-        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
-        colored_outputs = get_unspent_outputs(client, address)
+        client = self._create_client()
+        builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
+        colored_outputs = self._get_unspent_outputs(client, address)
 
         if fees is None:
-            fees = configuration.default_fees
+            fees = self.configuration.default_fees
         else:
-            fees = as_int(fees)
+            fees = self._as_int(fees)
 
         transaction = builder.transfer_bitcoin(
             colored_outputs,
-            base58_to_p2a_script(address),
-            base58_to_p2a_script(to),
-            as_int(amount),
+            Convert.base58_to_p2a_script(address),
+            Convert.base58_to_p2a_script(to),
+            self._as_int(amount),
             fees)
 
-        result = process_transaction(client, transaction, mode)
+        return self.tx_parser(self._process_transaction(client, transaction, mode))
 
-        print(result)
-
-    @parser.add
-    def sendasset(
+    def sendasset(self,
         address: "The address to send the asset from",
         asset: "The asset address identifying the asset to send",
         amount: "The amount of units to send",
@@ -111,29 +116,26 @@ def controller(configuration):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
     ):
         """Creates a transaction for sending an asset from an address to another."""
-        client = create_client()
-        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
-        colored_outputs = get_unspent_outputs(client, address)
+        client = self._create_client()
+        builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
+        colored_outputs = self._get_unspent_outputs(client, address)
 
         if fees is None:
-            fees = configuration.default_fees
+            fees = self.configuration.default_fees
         else:
-            fees = as_int(fees)
+            fees = self._as_int(fees)
 
         transaction = builder.transfer_assets(
             colored_outputs,
-            base58_to_p2a_script(address),
-            base58_to_p2a_script(to),
-            base58_to_asset_address(asset),
-            as_int(amount),
+            Convert.base58_to_p2a_script(address),
+            Convert.base58_to_p2a_script(to),
+            Convert.base58_to_asset_address(asset),
+            self._as_int(amount),
             fees)
 
-        result = process_transaction(client, transaction, mode)
+        return self.tx_parser(self._process_transaction(client, transaction, mode))
 
-        print(result)
-
-    @parser.add
-    def issueasset(
+    def issueasset(self,
         address: "The address to issue the asset from",
         amount: "The amount of units to send",
         to: "The address to send the asset to; if unspecified, the assets are sent back to the issuing address"=None,
@@ -144,33 +146,30 @@ def controller(configuration):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
     ):
         """Creates a transaction for sending an asset from an address to another."""
-        client = create_client()
-        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
-        colored_outputs = get_unspent_outputs(client, address)
+        client = self._create_client()
+        builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
+        colored_outputs = self._get_unspent_outputs(client, address)
 
         if fees is None:
-            fees = configuration.default_fees
+            fees = self.configuration.default_fees
         else:
-            fees = as_int(fees)
+            fees = self._as_int(fees)
 
         if to is None:
             to = address
 
         transaction = builder.issue(
             colored_outputs,
-            base58_to_p2a_script(address),
-            base58_to_p2a_script(to),
-            base58_to_p2a_script(address),
-            as_int(amount),
+            Convert.base58_to_p2a_script(address),
+            Convert.base58_to_p2a_script(to),
+            Convert.base58_to_p2a_script(address),
+            self._as_int(amount),
             bytes(metadata, encoding="utf-8"),
             fees)
 
-        result = process_transaction(client, transaction, mode)
+        return self.tx_parser(self._process_transaction(client, transaction, mode))
 
-        print(result)
-
-    @parser.add
-    def distribute(
+    def distribute(self,
         address: "The address to distribute the asset from",
         forward_address: "The address where to forward the collected bitcoin funds",
         price: "Price of an asset unit in satoshis",
@@ -185,38 +184,38 @@ def controller(configuration):
         to the sender newly issued assets, and send the bitcoins to the forward address. The number of issued coins
         sent back is proportional to the number of bitcoins sent, and configurable through the ratio argument.
         Because the asset issuance transaction is chained from the inbound transaction, double spend is impossible."""
-        client = create_client()
-        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
-        colored_outputs = get_unspent_outputs(client, address)
+        client = self._create_client()
+        builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
+        colored_outputs = self._get_unspent_outputs(client, address)
 
         if fees is None:
-            fees = configuration.default_fees
+            fees = self.configuration.default_fees
         else:
-            fees = as_int(fees)
+            fees = self._as_int(fees)
 
         transactions = []
         summary = []
         for output in colored_outputs:
             incoming_transaction = client.getrawtransaction(output.out_point.hash)
             script = bytes(incoming_transaction.vout[0].scriptPubKey)
-            collected, amount_issued, change = calculate_distribution(
-                output.output.nValue, as_decimal(price), fees, configuration.dust_limit)
+            collected, amount_issued, change = self._calculate_distribution(
+                output.output.nValue, self._as_decimal(price), fees, self.configuration.dust_limit)
             if amount_issued > 0:
                 transaction = bitcoin.core.CTransaction(
                     vin=[bitcoin.core.CTxIn(output.out_point, output.output.scriptPubKey)],
                     vout=[
-                        builder._get_colored_output(base58_to_p2a_script(address)),
+                        builder._get_colored_output(Convert.base58_to_p2a_script(address)),
                         builder._get_marker_output([amount_issued], bytes(metadata, encoding="utf-8")),
-                        builder._get_uncolored_output(base58_to_p2a_script(forward_address), collected),
-                        builder._get_uncolored_output(base58_to_p2a_script(address), change)
+                        builder._get_uncolored_output(Convert.base58_to_p2a_script(forward_address), collected),
+                        builder._get_uncolored_output(Convert.base58_to_p2a_script(address), change)
                     ]
                 )
 
                 transactions.append(transaction)
                 summary.append([
-                    script_to_base58_p2a(script),
-                    to_coin(output.output.nValue) + " BTC",
-                    to_coin(collected) + " BTC",
+                    Convert.script_to_base58_p2a(script, self.configuration.version_byte),
+                    Convert.to_coin(output.output.nValue) + " BTC",
+                    Convert.to_coin(collected) + " BTC",
                     str(amount_issued) + " Units",
                     bitcoin.core.b2lx(bitcoin.core.serialize.Hash(transaction.serialize()))])
 
@@ -227,12 +226,39 @@ def controller(configuration):
 
         print(table)
 
-    # Helpers
+    @staticmethod
+    def _calculate_distribution(output_value, price, fees, dust_limit):
+        effective_amount = output_value - fees - dust_limit
+        units_issued = int(effective_amount / price)
 
-    def create_client():
-        return bitcoin.rpc.Proxy(configuration.rpc_url)
+        collected = int(math.ceil(units_issued * price))
+        change = output_value - collected
+        if change < dust_limit:
+            collected += change
 
-    def get_unspent_outputs(client, address):
+        return collected, units_issued, output_value - collected
+
+    # Private methods
+
+    def _create_client(self):
+        return bitcoin.rpc.Proxy(self.configuration.rpc_url)
+
+    @staticmethod
+    def _as_int(value):
+        try:
+            return int(value)
+        except ValueError:
+            raise colorcore.program.ControllerError("Value '{}' is not a valid integer.".format(value))
+
+    @staticmethod
+    def _as_decimal(value):
+        try:
+            return decimal.Decimal(value)
+        except ValueError:
+            raise colorcore.program.ControllerError("Value '{}' is not a valid decimal number.".format(value))
+
+    @staticmethod
+    def _get_unspent_outputs(client, address):
         engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
         result = client.listunspent(addrs=[address] if address else None)
         return [
@@ -240,35 +266,46 @@ def controller(configuration):
             bitcoin.core.COutPoint(item['outpoint'].hash, item['outpoint'].n),
             engine.get_output(item['outpoint'].hash, item['outpoint'].n)) for item in result]
 
-    def process_transaction(client, transaction, mode):
+    @staticmethod
+    def _process_transaction(client, transaction, mode):
         if mode == 'broadcast' or mode == 'signed':
             # Sign the transaction
             signed_transaction = client.signrawtransaction(transaction)
             if not signed_transaction['complete']:
-                raise CommandLineError("Could not sign the transaction.")
+                raise colorcore.program.ControllerError("Could not sign the transaction.")
 
             if mode == 'broadcast':
                 result = client.sendrawtransaction(signed_transaction['tx'])
                 return bitcoin.core.b2lx(result)
             else:
-                return bitcoin.core.b2x(signed_transaction['tx'].serialize())
+                return signed_transaction['tx']
         else:
             # Return the transaction in raw format as a hex string
-            return bitcoin.core.b2x(transaction.serialize())
+            return transaction
 
-    def as_int(value):
-        try:
-            return int(value)
-        except ValueError:
-            raise CommandLineError("Value '{}' is not a valid integer.".format(value))
 
-    def as_decimal(value):
-        try:
-            return decimal.Decimal(value)
-        except ValueError:
-            raise CommandLineError("Value '{}' is not a valid decimal number.".format(value))
+class Convert(object):
 
-    def script_to_base58_p2a(script):
+    @staticmethod
+    def to_coin(satoshis):
+        return '%f' % (satoshis / bitcoin.core.COIN)
+
+    @staticmethod
+    def base58_to_p2a_script(base58_address):
+        address_bytes = bitcoin.base58.CBase58Data(base58_address).to_bytes()
+        return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address_bytes) \
+            + bytes([0x88, 0xac])
+
+    @staticmethod
+    def base58_to_asset_address(base58_address):
+        return bitcoin.base58.CBase58Data(base58_address).to_bytes()
+
+    @staticmethod
+    def asset_address_to_base58(asset_address, p2sh_version_byte):
+        return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, p2sh_version_byte))
+
+    @staticmethod
+    def script_to_base58_p2a(script, version_byte):
         script_object = bitcoin.core.CScript(script)
         try:
             opcodes = list(script_object.raw_iter())
@@ -278,80 +315,6 @@ def controller(configuration):
         if len(opcodes) == 5 and opcodes[0][0] == 0x76 and opcodes[1][0] == 0xA9 \
             and opcodes[3][0] == 0x88 and opcodes[4][0] == 0xac:
             opcode, data, sop_idx = opcodes[2]
-            return str(bitcoin.base58.CBase58Data.from_bytes(data, configuration.version_byte))
+            return str(bitcoin.base58.CBase58Data.from_bytes(data, version_byte))
 
         return "Unknown script"
-
-    def base58_to_p2a_script(base58_address):
-        address_bytes = bitcoin.base58.CBase58Data(base58_address).to_bytes()
-        return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address_bytes) \
-            + bytes([0x88, 0xac])
-
-    def base58_to_asset_address(base58_address):
-        return bitcoin.base58.CBase58Data(base58_address).to_bytes()
-
-    def asset_address_to_base58(asset_address):
-        return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, configuration.p2sh_version_byte))
-
-    def to_coin(satoshis):
-        return '%f' % (satoshis / bitcoin.core.COIN)
-
-    def calculate_distribution(output_value, price, fees, dust_limit):
-        effective_amount = output_value - fees - dust_limit
-        units_issued = int(effective_amount / price)
-
-        collected = int(math.ceil(units_issued * price))
-        change = output_value - collected
-        if change < dust_limit:
-            collected += change
-
-        return (collected, units_issued, output_value - collected)
-
-    parser.parse()
-    return parser
-
-
-class _Router:
-    """Infrastructure for routing command line calls to the right function."""
-
-    def __init__(self, description=None):
-        self._parser = argparse.ArgumentParser(description=description)
-        self._subparsers = self._parser.add_subparsers()
-
-    def add(self, func):
-        subparser = self._subparsers.add_parser(func.__name__, help=func.__doc__)
-        subparser.set_defaults(_func=self.filter_errors(func))
-        func_signature = inspect.signature(func)
-        for name, arg in func_signature.parameters.items():
-            if arg.kind != arg.POSITIONAL_OR_KEYWORD:
-                continue
-            arg_help = arg.annotation if arg.annotation is not arg.empty else None
-            if arg.default is arg.empty:
-                # a positional argument
-                subparser.add_argument(name, help=arg_help)
-            else:
-                # an optional argument
-                subparser.add_argument("--" + name,
-                    help=arg_help,
-                    nargs="?",
-                    default=arg.default)
-        return func
-
-    def parse(self):
-        args = vars(self._parser.parse_args())
-        func = args.pop("_func", self._parser.print_usage)
-        func(**args)
-
-    @staticmethod
-    def filter_errors(function):
-        def decorator(*args, **kwargs):
-            try:
-                return function(*args, **kwargs)
-            except CommandLineError as error:
-                print("Error: {}".format(str(error)))
-
-        return decorator
-
-
-class CommandLineError(Exception):
-    pass
