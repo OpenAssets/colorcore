@@ -12,7 +12,7 @@ Requirements
 
 The following items are required for using Colorcore:
 
-* Python 3
+* `Python 3 <https://www.python.org/downloads/>`_
 * The `openassets <https://github.com/openassets/openassets>`_ package
 * The `python-bitcoinlib <https://github.com/petertodd/python-bitcoinlib>`_ package
 * An operational Bitcoin Core wallet with JSON/RPC enabled and full transaction index
@@ -20,20 +20,37 @@ The following items are required for using Colorcore:
 Installation
 ============
 
-Use the following command to install Colorcore::
+Clone the source code from GitHub::
 
-    $ pip install colorcore
+    $ git clone https://github.com/OpenAssets/colorcore.git
     
-Or manually from source, assuming all required modules are installed on your system::
+Update the requirements::
 
-    $ python ./setup.py install
+    $ cd colorcore
+    $ pip install --upgrade -r requirements.txt
 
 Configuration
 =============
 
 Make sure your have a Bitcoin Core server running, with the following arguments: ``-txindex=1 -server=1``. You may need to have a username and password configured in the configuration file for Bitcoin Core (``bitcoin.conf``).
 
-All the configuration for Colorcore is done though the ``config.ini`` file.
+All the configuration for Colorcore is done though the ``config.ini`` file::
+
+    [bitcoind]
+    # Replace username, password and port with the username, password and port for Bitcoin Core
+    # The default port is 8332 in MainNet and 18332 in TestNet
+    rpcurl=http://<username>:<password>@localhost:<port>
+
+    [environment]
+    # Use the following settings for MainNet
+    version-byte=0
+    p2sh-version-byte=5
+    dust-limit=600
+    default-fees=10000
+
+    [rpc]
+    # The port on which to expose the Colorcore RPC interface
+    port=8080
 
 Usage
 =====
@@ -76,12 +93,33 @@ Issuing an asset is done through a standard Bitcoin transaction. The following c
 
 The ``<address>`` placeholder represents the issuing address. You must own the private key for this address in your Bitcoin Core wallet, and you must have at least 0.000006 BTC on that address in order to successfully issue the asset. If the operation is successful, this command will return the transaction hash of the issuing transaction. You can then use a `color-aware block explorer <https://www.coinprism.info>`_ to see the details of the transaction.
 
+Get your balance
+----------------
+
+Getting the balance of the wallet stored on the Bitcoin Core instance can be done by using the following command::
+
+    python colorcore.py getbalance
+
+Send an asset
+-------------
+
+Use the ``sendasset`` operation to send an asset to another address::
+
+    python colorcore.py sendasset <from> <asset> <quantity> <to>
+
+Crowdsales
+----------
+
+Crowdsales can be operated from Colorcore using the ``distribute`` command. It is not vulnerable to double spends, and allows the issuer to change the price of their tokens over time.
+
 Remarks
 -------
 
 Fees can be specified through the ``--fees`` argument, and the default amount for fees can be changed through the ``config.ini`` file.
 
 Once you have colored coins on one address, make sure you use the ``sendbitcoin`` operation to send uncolored bitcoins from that address. If you use Bitcoin Core to send bitcoins, Bitcoin Core might spend your colored outputs as it is not aware of colored coins.
+
+If RPC is enabled, it is highly recommended to use a firewall to prevent access to Colorcore from a remote machine.
 
 License
 =======
