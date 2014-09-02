@@ -84,7 +84,15 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
         for key, value in urllib.parse.parse_qs(self.rfile.read(length), keep_blank_values=1).items():
             post_vars[str(key, 'utf-8')] = str(value[0], 'utf-8')
 
-        controller = self.server.controller(self.server.configuration, None)
+        if 'txformat' not in post_vars or post_vars['txformat'] == "json":
+            tx_parser = Router.get_transaction_json
+        else:
+            tx_parser = lambda transaction: bitcoin.core.b2x(transaction.serialize())
+
+        if 'txformat' in post_vars:
+            del post_vars['txformat']
+
+        controller = self.server.controller(self.server.configuration, tx_parser)
 
         try:
             result = operation(controller, **post_vars)
