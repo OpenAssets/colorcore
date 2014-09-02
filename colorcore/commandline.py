@@ -25,6 +25,7 @@
 import argparse
 import bitcoin.base58
 import bitcoin.core
+import bitcoin.core.serialize
 import bitcoin.core.script
 import bitcoin.rpc
 import decimal
@@ -200,21 +201,23 @@ def controller(configuration):
             collected = output.output.nValue - fees - configuration.dust_limit
             amount_issued = int(collected * as_decimal(ratio))
             if amount_issued > 0:
-                summary.append([
-                    script_to_base58_p2a(script),
-                    to_coin(output.output.nValue) + " BTC",
-                    to_coin(collected) + " BTC",
-                    str(amount_issued) + " Units"])
-                transactions.append(builder.issue(
+                transaction = builder.issue(
                     [output],
                     base58_to_p2a_script(address),
                     script,
                     base58_to_p2a_script(forward_address),
                     amount_issued,
                     bytes(metadata, encoding="utf-8"),
-                    fees))
+                    fees)
+                transactions.append(transaction)
+                summary.append([
+                    script_to_base58_p2a(script),
+                    to_coin(output.output.nValue) + " BTC",
+                    to_coin(collected) + " BTC",
+                    str(amount_issued) + " Units",
+                    bitcoin.core.b2lx(bitcoin.core.serialize.Hash(transaction.serialize()))])
 
-        table = prettytable.PrettyTable(['From', 'Received', 'Collected', 'Sent'])
+        table = prettytable.PrettyTable(['From', 'Received', 'Collected', 'Sent', 'Transaction'])
 
         for row in summary:
             table.add_row(row)
