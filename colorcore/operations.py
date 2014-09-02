@@ -191,10 +191,12 @@ class Controller(object):
                     vout=[
                         builder._get_colored_output(script),
                         builder._get_marker_output([amount_issued], bytes(metadata, encoding="utf-8")),
-                        builder._get_uncolored_output(Convert.base58_to_p2a_script(forward_address), collected),
-                        builder._get_uncolored_output(script, change)
+                        builder._get_uncolored_output(Convert.base58_to_p2a_script(forward_address), collected)
                     ]
                 )
+
+                if change > 0:
+                    transaction.vout.append(builder._get_uncolored_output(script, change))
 
                 transactions.append(transaction)
                 summary.append({
@@ -220,11 +222,11 @@ class Controller(object):
         units_issued = int(effective_amount / price)
 
         collected = int(math.ceil(units_issued * price))
-        change = output_value - collected
+        change = effective_amount - collected
         if change < dust_limit:
             collected += change
 
-        return collected, units_issued, output_value - collected
+        return collected, units_issued, effective_amount - collected
 
     # Private methods
 

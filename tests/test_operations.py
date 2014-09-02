@@ -54,6 +54,16 @@ class ControllerTests(unittest.TestCase):
                 address='mr5im8BFT5ycERKHCgZoS7cRN5PewwTR4d',
                 script=bitcoin.core.x('76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'),
                 script_hex='76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'
+            ),
+            Expando(
+                address='mkN27mch2UtnRT28k8c5mQPYrW75cYdXUi',
+                script=bitcoin.core.x('76a914352813875577109204686b2e687f7ea046235aa588ac'),
+                script_hex='76a914352813875577109204686b2e687f7ea046235aa588ac'
+            ),
+            Expando(
+                address='msdzhXTdebVizEJnPrqGWFj5ruFRA8TLxF',
+                script=bitcoin.core.x('76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'),
+                script_hex='76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'
             )
         ]
 
@@ -115,9 +125,9 @@ class ControllerTests(unittest.TestCase):
 
             result = target.sendbitcoin(
                 address=self.addresses[0].address,
-                amount=100,
+                amount='100',
                 to=self.addresses[2].address,
-                fees=10,
+                fees='10',
                 mode='unsigned')
 
             self.assert_response({
@@ -150,7 +160,7 @@ class ControllerTests(unittest.TestCase):
 
             result = target.sendbitcoin(
                 address=self.addresses[0].address,
-                amount=100,
+                amount='100',
                 to=self.addresses[2].address,
                 mode='unsigned')
 
@@ -188,9 +198,9 @@ class ControllerTests(unittest.TestCase):
             result = target.sendasset(
                 address=self.addresses[0].address,
                 asset=self.assets[0].address,
-                amount=100,
+                amount='100',
                 to=self.addresses[2].address,
-                fees=10,
+                fees='10',
                 mode='unsigned')
 
             self.assert_response({
@@ -202,6 +212,7 @@ class ControllerTests(unittest.TestCase):
                     self.get_input(2, self.addresses[0])
                 ],
                 'vout': [
+                    # Marker output
                     self.get_marker_output(0, [100, 30], b''),
                     # Asset sent
                     self.get_output(10, 1, self.addresses[2]),
@@ -229,10 +240,10 @@ class ControllerTests(unittest.TestCase):
 
             result = target.issueasset(
                 address=self.addresses[0].address,
-                amount=100,
+                amount='100',
                 to=self.addresses[2].address,
                 metadata='metadata',
-                fees=10,
+                fees='10',
                 mode='unsigned')
 
             self.assert_response({
@@ -245,11 +256,118 @@ class ControllerTests(unittest.TestCase):
                 'vout': [
                     # Asset issued
                     self.get_output(10, 0, self.addresses[2]),
+                    # Marker output
                     self.get_marker_output(1, [100], b'metadata'),
                     # Bitcoin change
                     self.get_output(20, 2, self.addresses[0])
                 ]
             },
+            result)
+
+    # distribute
+
+    def test_distribute_success(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
+            unittest.mock.patch('bitcoin.rpc.Proxy.getrawtransaction') as getrawtransaction_patch, \
+            unittest.mock.patch('openassets.protocol.ColoringEngine.get_output') as get_output_patch:
+
+            self.setup_mocks(listunspent_patch, get_output_patch, [
+                (36 + 10 + 15, self.addresses[0].script, None, 0),
+                (46 + 10 + 15, self.addresses[0].script, None, 0)
+            ])
+
+            def get_raw_transaction(transaction_hash):
+                index = int(str(transaction_hash[0:1], 'utf-8'))
+                return bitcoin.core.CTransaction(
+                    vout=[
+                        bitcoin.core.CTxOut(scriptPubKey=bitcoin.core.script.CScript(self.addresses[index + 3].script))
+                    ]
+                )
+
+            getrawtransaction_patch.side_effect = get_raw_transaction
+
+            target = self.create_controller()
+
+            result = target.distribute(
+                address=self.addresses[0].address,
+                forward_address=self.addresses[2].address,
+                price='20',
+                metadata='metadata',
+                mode='unsigned')
+
+            self.assert_response([{
+                'version': 1,
+                'locktime': 0,
+                'vin': [self.get_input(0, self.addresses[0])],
+                'vout': [
+                    # Asset issued
+                    self.get_output(10, 0, self.addresses[3]),
+                    # Marker output
+                    self.get_marker_output(1, [1], b'metadata'),
+                    # Forwarded funds
+                    self.get_output(20, 2, self.addresses[2]),
+                    # Bitcoin change
+                    self.get_output(16, 3, self.addresses[3])
+                ]
+            },
+            {
+                'version': 1,
+                'locktime': 0,
+                'vin': [self.get_input(1, self.addresses[0])],
+                'vout': [
+                    # Asset issued
+                    self.get_output(10, 0, self.addresses[4]),
+                    # Marker output
+                    self.get_marker_output(1, [2], b'metadata'),
+                    # Forwarded funds
+                    self.get_output(40 + 6, 2, self.addresses[2])
+                ]
+            }],
+            result)
+
+    def test_distribute_preview(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
+            unittest.mock.patch('bitcoin.rpc.Proxy.getrawtransaction') as getrawtransaction_patch, \
+            unittest.mock.patch('openassets.protocol.ColoringEngine.get_output') as get_output_patch:
+
+            self.setup_mocks(listunspent_patch, get_output_patch, [
+                (36 + 10 + 15, self.addresses[0].script, None, 0),
+                (46 + 10 + 15, self.addresses[0].script, None, 0)
+            ])
+
+            def get_raw_transaction(transaction_hash):
+                index = int(str(transaction_hash[0:1], 'utf-8'))
+                return bitcoin.core.CTransaction(
+                    vout=[
+                        bitcoin.core.CTxOut(scriptPubKey=bitcoin.core.script.CScript(self.addresses[index + 3].script))
+                    ]
+                )
+
+            getrawtransaction_patch.side_effect = get_raw_transaction
+
+            target = self.create_controller()
+
+            result = target.distribute(
+                address=self.addresses[0].address,
+                forward_address=self.addresses[2].address,
+                price='20',
+                metadata='metadata',
+                mode='preview')
+
+            self.assert_response([{
+                'from': self.addresses[3].address,
+                'received': "0.00000061 BTC",
+                'collected': "0.00000020 BTC",
+                'sent': "1 Units",
+                'transaction': bitcoin.core.b2lx(bytes('0', 'utf-8') * 32)
+            },
+            {
+                'from': self.addresses[4].address,
+                'received': "0.00000071 BTC",
+                'collected': "0.00000046 BTC",
+                'sent': "2 Units",
+                'transaction': bitcoin.core.b2lx(bytes('1', 'utf-8') * 32)
+            }],
             result)
 
     # Test helpers
@@ -275,8 +393,8 @@ class ControllerTests(unittest.TestCase):
             colorcore.program.Router.get_transaction_formatter('json'))
 
     def assert_response(self, expected, actual):
-        expected_json = json.dumps(expected, sort_keys=False)
-        actual_json = json.dumps(actual, sort_keys=False)
+        expected_json = json.dumps(expected, indent=4, sort_keys=False)
+        actual_json = json.dumps(actual, indent=4, sort_keys=False)
 
         self.assertEquals(expected_json, actual_json)
 
