@@ -86,7 +86,7 @@ class Controller(object):
         address: "The address to send the bitcoins from",
         amount: "The amount of satoshis to send",
         to: "The address to send the bitcoins to",
-        fees: "The fess in satoshis for the transaction" = None,
+        fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' (default) for signing and broadcasting the transaction,
             'signed' for signing the transaction without broadcasting,
             'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
@@ -174,6 +174,7 @@ class Controller(object):
         to the sender newly issued assets, and send the bitcoins to the forward address. The number of issued coins
         sent back is proportional to the number of bitcoins sent, and configurable through the ratio argument.
         Because the asset issuance transaction is chained from the inbound transaction, double spend is impossible."""
+        decimal_price = self._as_decimal(price)
         client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = self._get_unspent_outputs(client, address)
@@ -184,7 +185,7 @@ class Controller(object):
             incoming_transaction = client.getrawtransaction(output.out_point.hash)
             script = bytes(incoming_transaction.vout[0].scriptPubKey)
             collected, amount_issued, change = self._calculate_distribution(
-                output.output.nValue, self._as_decimal(price), self._get_fees(fees), self.configuration.dust_limit)
+                output.output.nValue, decimal_price, self._get_fees(fees), self.configuration.dust_limit)
             if amount_issued > 0:
                 transaction = bitcoin.core.CTransaction(
                     vin=[bitcoin.core.CTxIn(output.out_point, output.output.scriptPubKey)],
@@ -238,14 +239,14 @@ class Controller(object):
         try:
             return int(value)
         except ValueError:
-            raise colorcore.program.ControllerError("Value '{}' is not a valid integer.".format(value))
+            raise colorcore.routing.ControllerError("Value '{}' is not a valid integer.".format(value))
 
     @staticmethod
     def _as_decimal(value):
         try:
             return decimal.Decimal(value)
-        except ValueError:
-            raise colorcore.program.ControllerError("Value '{}' is not a valid decimal number.".format(value))
+        except decimal.InvalidOperation:
+            raise colorcore.routing.ControllerError("Value '{}' is not a valid decimal number.".format(value))
 
     def _get_fees(self, value):
         if value is None:
@@ -268,7 +269,7 @@ class Controller(object):
             # Sign the transaction
             signed_transaction = client.signrawtransaction(transaction)
             if not signed_transaction['complete']:
-                raise colorcore.program.ControllerError("Could not sign the transaction.")
+                raise colorcore.routing.ControllerError("Could not sign the transaction.")
 
             if mode == 'broadcast':
                 result = client.sendrawtransaction(signed_transaction['tx'])

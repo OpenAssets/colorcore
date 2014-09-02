@@ -37,8 +37,8 @@ import urllib.parse
 
 
 class Program(object):
-
-    def execute(self):
+    @staticmethod
+    def execute():
         configuration = Configuration()
         router = Router(
             colorcore.operations.Controller,

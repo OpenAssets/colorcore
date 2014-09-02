@@ -32,5 +32,4 @@ import colorcore.routing
 
 
 if __name__ == "__main__":
-    program = colorcore.routing.Program()
-    program.execute()
+    colorcore.routing.Program.execute()

@@ -130,6 +130,54 @@ class ControllerTests(unittest.TestCase):
         },
         result)
 
+    def test_sendbitcoin_signed_success(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransactiont_patch:
+            signrawtransactiont_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
+            result = self._setup_sendbitcoin_test('signed', 'json')
+
+            signrawtransactiont_patch.assert_called_once()
+            self.assertEqual(2, len(result['vin']))
+            self.assertEqual(2, len(result['vout']))
+
+    def test_sendbitcoin_signed_invalid_signature(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransactiont_patch:
+            signrawtransactiont_patch.side_effect = lambda transaction: {"complete": False}
+
+            self.assertRaises(colorcore.routing.ControllerError, self._setup_sendbitcoin_test, 'signed', 'json')
+            signrawtransactiont_patch.assert_called_once()
+
+    def test_sendbitcoin_broadcast(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransaction_patch, \
+            unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction') as sendrawtransaction_patch:
+            signrawtransaction_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
+            sendrawtransaction_patch.return_value = b'transaction ID'
+            result = self._setup_sendbitcoin_test('broadcast', 'json')
+
+            signrawtransaction_patch.assert_called_once()
+            sendrawtransaction_patch.assert_called_once()
+            self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
+
+    def test_sendbitcoin_raw_unsigned(self):
+        result = self._setup_sendbitcoin_test('unsigned', 'raw')
+
+        self.assertEqual(
+            True,
+            result.startswith('01000000023131313131313131313131313131313131313131313131313131313131313131'))
+        self.assertIn(self.addresses[0].script_hex, result)
+        self.assertIn(self.addresses[2].script_hex, result)
+        self.assertEqual(420, len(result))
+
+    def test_sendbitcoin_raw_broadcast(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransaction_patch, \
+            unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction') as sendrawtransaction_patch:
+            signrawtransaction_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
+            sendrawtransaction_patch.return_value = b'transaction ID'
+            result = self._setup_sendbitcoin_test('broadcast', 'raw')
+
+            signrawtransaction_patch.assert_called_once()
+            sendrawtransaction_patch.assert_called_once()
+            self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
+
     def test_sendbitcoin_default_fees(self):
         with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
             unittest.mock.patch('openassets.protocol.ColoringEngine.get_output') as get_output_patch:
@@ -164,46 +212,26 @@ class ControllerTests(unittest.TestCase):
             },
             result)
 
-    def test_sendbitcoin_signed(self):
-        with unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransactiont_patch:
-            signrawtransactiont_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
-            result = self._setup_sendbitcoin_test('signed', 'json')
+    def test_invalid_fees(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
+            unittest.mock.patch('openassets.protocol.ColoringEngine.get_output') as get_output_patch:
 
-            signrawtransactiont_patch.assert_called_once()
-            self.assertEqual(2, len(result['vin']))
-            self.assertEqual(2, len(result['vout']))
+            self.setup_mocks(listunspent_patch, get_output_patch, [
+                (80, self.addresses[0].script, None, 0),
+                (50, self.addresses[1].script, None, 0),
+                (50, self.addresses[0].script, None, 0)
+            ])
 
-    def test_sendbitcoin_broadcast(self):
-        with unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransaction_patch, \
-            unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction') as sendrawtransaction_patch:
-            signrawtransaction_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
-            sendrawtransaction_patch.return_value = b'transaction ID'
-            result = self._setup_sendbitcoin_test('broadcast', 'json')
+            target = self.create_controller()
 
-            signrawtransaction_patch.assert_called_once()
-            sendrawtransaction_patch.assert_called_once()
-            self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
-
-    def test_sendbitcoin_raw_unsigned(self):
-        result = self._setup_sendbitcoin_test('unsigned', 'raw')
-
-        self.assertEqual(
-            True,
-            result.startswith('01000000023131313131313131313131313131313131313131313131313131313131313131'))
-        self.assertIn(self.addresses[0].script_hex, result)
-        self.assertIn(self.addresses[2].script_hex, result)
-        self.assertEqual(420, len(result))
-
-    def test_sendbitcoin_raw_broadcast(self):
-        with unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransaction_patch, \
-            unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction') as sendrawtransaction_patch:
-            signrawtransaction_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
-            sendrawtransaction_patch.return_value = b'transaction ID'
-            result = self._setup_sendbitcoin_test('broadcast', 'raw')
-
-            signrawtransaction_patch.assert_called_once()
-            sendrawtransaction_patch.assert_called_once()
-            self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
+            self.assertRaises(
+                colorcore.routing.ControllerError,
+                target.sendbitcoin,
+                address=self.addresses[0].address,
+                amount='100',
+                to=self.addresses[2].address,
+                fees='10a',
+                mode='unsigned')
 
     def _setup_sendbitcoin_test(self, mode, format):
         with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
@@ -321,15 +349,7 @@ class ControllerTests(unittest.TestCase):
                 (46 + 10 + 15, self.addresses[0].script, None, 0)
             ])
 
-            def get_raw_transaction(transaction_hash):
-                index = int(str(transaction_hash[0:1], 'utf-8'))
-                return bitcoin.core.CTransaction(
-                    vout=[
-                        bitcoin.core.CTxOut(scriptPubKey=bitcoin.core.script.CScript(self.addresses[index + 3].script))
-                    ]
-                )
-
-            getrawtransaction_patch.side_effect = get_raw_transaction
+            getrawtransaction_patch.side_effect = self._distribute_get_raw_transaction
 
             target = self.create_controller()
 
@@ -380,15 +400,7 @@ class ControllerTests(unittest.TestCase):
                 (46 + 10 + 15, self.addresses[0].script, None, 0)
             ])
 
-            def get_raw_transaction(transaction_hash):
-                index = int(str(transaction_hash[0:1], 'utf-8'))
-                return bitcoin.core.CTransaction(
-                    vout=[
-                        bitcoin.core.CTxOut(scriptPubKey=bitcoin.core.script.CScript(self.addresses[index + 3].script))
-                    ]
-                )
-
-            getrawtransaction_patch.side_effect = get_raw_transaction
+            getrawtransaction_patch.side_effect = self._distribute_get_raw_transaction
 
             target = self.create_controller()
 
@@ -414,6 +426,26 @@ class ControllerTests(unittest.TestCase):
                 'transaction': bitcoin.core.b2lx(bytes('1', 'utf-8') * 32)
             }],
             result)
+
+    def test_distribute_invalid_price(self):
+        target = self.create_controller()
+
+        self.assertRaises(
+            colorcore.routing.ControllerError,
+            target.distribute,
+            address=self.addresses[0].address,
+            forward_address=self.addresses[2].address,
+            price='20.2r',
+            metadata='metadata',
+            mode='preview')
+
+    def _distribute_get_raw_transaction(self, transaction_hash):
+        index = int(str(transaction_hash[0:1], 'utf-8'))
+        return bitcoin.core.CTransaction(
+            vout=[
+                bitcoin.core.CTxOut(scriptPubKey=bitcoin.core.script.CScript(self.addresses[index + 3].script))
+            ]
+        )
 
     # Test helpers
 
