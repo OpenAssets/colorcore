@@ -27,6 +27,7 @@ import bitcoin.base58
 import bitcoin.core
 import bitcoin.core.script
 import bitcoin.rpc
+import decimal
 import inspect
 import itertools
 import openassets.protocol
@@ -54,14 +55,14 @@ def controller(configuration):
 
         for script, group in itertools.groupby(colored_outputs, lambda output: output.scriptPubKey):
             script_outputs = list(group)
-            total_value = sum([item.nValue for item in script_outputs]) / bitcoin.core.COIN
+            total_value = to_coin(sum([item.nValue for item in script_outputs]))
             base58 = script_to_base58_p2a(script)
-            table.add_row([base58, "Bitcoin", '%f' % total_value])
+            table.add_row([base58, "Bitcoin", total_value])
 
             for asset_address, outputs in itertools.groupby(script_outputs, lambda output: output.asset_address):
                 if asset_address is not None:
                     total_quantity = sum([item.asset_quantity for item in outputs])
-                    table.add_row([base58, get_base85_color_address(asset_address), str(total_quantity)])
+                    table.add_row([base58, asset_address_to_base58(asset_address), str(total_quantity)])
 
         print(table)
 
@@ -134,8 +135,8 @@ def controller(configuration):
         address: "The address to issue the asset from",
         amount: "The amount of units to send",
         to: "The address to send the asset to; if unspecified, the assets are sent back to the issuing address"=None,
-        fees: "The fess in satoshis for the transaction"=None,
         metadata: "The metadata to embed in the transaction"="",
+        fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' (default) for signing and broadcasting the transaction,
             'signed' for signing the transaction without broadcasting,
             'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
@@ -157,6 +158,7 @@ def controller(configuration):
             colored_outputs,
             base58_to_p2a_script(address),
             base58_to_p2a_script(to),
+            base58_to_p2a_script(address),
             as_int(amount),
             bytes(metadata, encoding="utf-8"),
             fees)
@@ -164,6 +166,60 @@ def controller(configuration):
         result = process_transaction(client, transaction, mode)
 
         print(result)
+
+    @parser.add
+    def distribute(
+        address: "The address to distribute the asset from",
+        forward_address: "The address where to forward the collected bitcoin funds",
+        ratio: "Number of outgoing asset units per incoming satoshi",
+        metadata: "The metadata to embed in the transaction"="",
+        fees: "The fess in satoshis for the transaction"=None,
+        mode: """'broadcast' for signing and broadcasting the transaction,
+            'signed' for signing the transaction without broadcasting,
+            'unsigned' for getting the raw unsigned transaction without broadcasting,
+            'preview' (default) for displaying a preview of the transactions"""="preview"
+    ):
+        """For every inbound transaction sending bitcoins to 'address', create an outbound transaction sending back
+        to the sender newly issued assets, and send the bitcoins to the forward address. The number of issued coins
+        sent back is proportional to the number of bitcoins sent, and configurable through the ratio argument.
+        Because the asset issuance transaction is chained from the inbound transaction, double spend is impossible."""
+        client = create_client()
+        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
+        colored_outputs = get_unspent_outputs(client, address)
+
+        if fees is None:
+            fees = configuration.default_fees
+        else:
+            fees = as_int(fees)
+
+        transactions = []
+        summary = []
+        for output in colored_outputs:
+            incoming_transaction = client.getrawtransaction(output.out_point.hash)
+            script = bytes(incoming_transaction.vout[0].scriptPubKey)
+            collected = output.output.nValue - fees - configuration.dust_limit
+            amount_issued = int(collected * as_decimal(ratio))
+            if amount_issued > 0:
+                summary.append([
+                    script_to_base58_p2a(script),
+                    to_coin(output.output.nValue) + " BTC",
+                    to_coin(collected) + " BTC",
+                    str(amount_issued) + " Units"])
+                transactions.append(builder.issue(
+                    [output],
+                    base58_to_p2a_script(address),
+                    script,
+                    base58_to_p2a_script(forward_address),
+                    amount_issued,
+                    bytes(metadata, encoding="utf-8"),
+                    fees))
+
+        table = prettytable.PrettyTable(['From', 'Received', 'Collected', 'Sent'])
+
+        for row in summary:
+            table.add_row(row)
+
+        print(table)
 
     # Helpers
 
@@ -200,6 +256,12 @@ def controller(configuration):
         except ValueError:
             raise CommandLineError("Value '{}' is not a valid integer.".format(value))
 
+    def as_decimal(value):
+        try:
+            return decimal.Decimal(value)
+        except ValueError:
+            raise CommandLineError("Value '{}' is not a valid decimal number.".format(value))
+
     def script_to_base58_p2a(script):
         script_object = bitcoin.core.CScript(script)
         try:
@@ -222,8 +284,11 @@ def controller(configuration):
     def base58_to_asset_address(base58_address):
         return bitcoin.base58.CBase58Data(base58_address).to_bytes()
 
-    def get_base85_color_address(asset_address):
+    def asset_address_to_base58(asset_address):
         return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, configuration.p2sh_version_byte))
+
+    def to_coin(satoshis):
+        return '%f' % (satoshis / bitcoin.core.COIN)
 
     parser.parse()
     return parser
