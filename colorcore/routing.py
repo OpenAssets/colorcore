@@ -31,6 +31,7 @@ import inspect
 import json
 import openassets.transactions
 import re
+import socketserver
 import sys
 import urllib.parse
 
@@ -173,12 +174,12 @@ class Router:
             try:
                 result = function(controller, *args, **kwargs)
 
-                self.output.write(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False))
+                self.output.write(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False) + '\n')
 
             except ControllerError as error:
-                self.output.write("Error: {}".format(str(error)))
+                self.output.write("Error: {}\n".format(str(error)))
             except openassets.transactions.TransactionBuilderError as error:
-                self.output.write("Error: {}".format(type(error).__name__))
+                self.output.write("Error: {}\n".format(type(error).__name__))
 
         return decorator
 
@@ -221,12 +222,16 @@ class Router:
 
     def run_rpc_server(self):
         if not self.configuration.rpc_enabled:
-            self.output.write("Error: RPC must be enabled in the configuration.")
+            self.output.write("Error: RPC must be enabled in the configuration.\n")
             return
 
-        self.output.write("Starting RPC server on port {port}...".format(port=self.configuration.rpc_port))
+        class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+            daemon_threads = True
+            allow_reuse_address = True
 
-        httpd = http.server.HTTPServer(('', self.configuration.rpc_port), RpcServer)
+        self.output.write("Starting RPC server on port {port}...\n".format(port=self.configuration.rpc_port))
+
+        httpd = ThreadedHTTPServer(('', self.configuration.rpc_port), RpcServer)
         httpd.controller = self.controller
         httpd.configuration = self.configuration
         httpd.serve_forever()
