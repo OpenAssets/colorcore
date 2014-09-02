@@ -52,13 +52,15 @@ def controller(configuration):
         table = prettytable.PrettyTable(["Address", "Asset", "Quantity"])
 
         for script, group in itertools.groupby(colored_outputs, lambda output: output.scriptPubKey):
-            total_value = sum([item.nValue for item in group]) / bitcoin.core.COIN
+            script_outputs = list(group)
+            total_value = sum([item.nValue for item in script_outputs]) / bitcoin.core.COIN
             base58 = get_p2a_address_from_script(script)
             table.add_row([base58, "Bitcoin", str(total_value)])
 
-            for asset_address, outputs in itertools.groupby(group, lambda output: output.asset_address):
+            for asset_address, outputs in itertools.groupby(script_outputs, lambda output: output.asset_address):
                 if asset_address is not None:
-                    pass
+                    total_quantity = sum([item.asset_quantity for item in outputs])
+                    table.add_row([base58, get_base85_color_address(asset_address), str(total_quantity)])
 
         print(table)
 
@@ -90,6 +92,8 @@ def controller(configuration):
 
         return "Unknown script"
 
+    def get_base85_color_address(asset_address):
+        return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, configuration.p2sh_version_byte))
 
     parser.parse()
     return parser

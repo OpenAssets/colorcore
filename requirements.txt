@@ -1,0 +1,2 @@
+prettytable==0.7.2
+python-bitcoinlib==0.2-snapshot
