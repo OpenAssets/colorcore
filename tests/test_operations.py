@@ -25,6 +25,7 @@
 import bitcoin.core
 import bitcoin.core.script
 import colorcore.operations
+import colorcore.program
 import json
 import openassets.protocol
 import unittest
@@ -37,15 +38,22 @@ class ControllerTests(unittest.TestCase):
         class Expando(object):
             def __init__(self, **kwargs):
                 self.__dict__.update(kwargs)
-
+        self.maxDiff = None
         self.addresses = [
             Expando(
                 address='moogjqrTWfjkyxLHk9ytzp147EfXVvqLEP',
-                script=bitcoin.core.x('76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac')
+                script=bitcoin.core.x('76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'),
+                script_hex='76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'
             ),
             Expando(
                 address='mpLppfoBWbdF9Y7zeN9sJHcbMzQvAeRqMs',
-                script=bitcoin.core.x('76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac')
+                script=bitcoin.core.x('76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'),
+                script_hex='76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'
+            ),
+            Expando(
+                address='mr5im8BFT5ycERKHCgZoS7cRN5PewwTR4d',
+                script=bitcoin.core.x('76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'),
+                script_hex='76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'
             )
         ]
 
@@ -91,6 +99,43 @@ class ControllerTests(unittest.TestCase):
                 ],
                 result)
 
+    # sendbitcoin
+
+    def test_sendbitcoin_success(self):
+
+        with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
+            unittest.mock.patch('openassets.protocol.ColoringEngine.get_output') as get_output_patch:
+
+            self.setup_mocks(listunspent_patch, get_output_patch, [
+                (20, self.addresses[0].script, self.assets[0].binary, 30),
+                (80, self.addresses[0].script, None, 0),
+                (50, self.addresses[1].script, None, 0),
+                (40, self.addresses[0].script, None, 0)
+            ])
+
+            target = self.create_controller()
+
+            result = target.sendbitcoin(
+                address=self.addresses[0].address,
+                to=self.addresses[2].address,
+                amount=100,
+                fees=10,
+                mode='unsigned')
+
+            self.assert_response({
+                'version': 1,
+                'locktime': 0,
+                'vin': [
+                    self.get_input(1, self.addresses[0]),
+                    self.get_input(3, self.addresses[0])
+                ],
+                'vout': [
+                    self.get_output(10, 0, self.addresses[0]),
+                    self.get_output(100, 1, self.addresses[2])
+                ]
+            },
+            result)
+
     # Test helpers
 
     def setup_mocks(self, listunspent_patch, get_output_patch, spec):
@@ -109,10 +154,29 @@ class ControllerTests(unittest.TestCase):
         configuration.dust_limit = 10
         configuration.default_fees = 1000
 
-        return colorcore.operations.Controller(configuration, lambda x: x)
+        return colorcore.operations.Controller(
+            configuration,
+            colorcore.program.Router.get_transaction_formatter('json'))
 
     def assert_response(self, expected, actual):
         expected_json = json.dumps(expected, sort_keys=False)
         actual_json = json.dumps(actual, sort_keys=False)
 
         self.assertEquals(expected_json, actual_json)
+
+    def get_input(self, index, script):
+        return {
+            'txid': bitcoin.core.b2lx(bytes(str(index), 'utf-8') * 32),
+            'vout': index,
+            'sequence': 0xffffffff,
+            'scriptSig': {
+                'hex': script.script_hex
+            }
+        }
+
+    def get_output(self, value, index, script):
+        return {
+            'value': value,
+            'n': index,
+            'scriptPubKey': {'hex': script.script_hex}
+        }
