@@ -179,30 +179,38 @@ class Router:
     def get_transaction_formatter(format):
         if format == "json":
             def get_transaction_json(transaction):
-                return {
-                    'version': transaction.nVersion,
-                    'locktime': transaction.nLockTime,
-                    'vin': [{
-                            'txid': bitcoin.core.b2lx(input.prevout.hash),
-                            'vout': input.prevout.n,
-                            'sequence': input.nSequence,
-                            'scriptSig': {
-                                'hex': bitcoin.core.b2x(bytes(input.scriptSig))
+                if isinstance(transaction, bitcoin.core.CTransaction):
+                    return {
+                        'version': transaction.nVersion,
+                        'locktime': transaction.nLockTime,
+                        'vin': [{
+                                'txid': bitcoin.core.b2lx(input.prevout.hash),
+                                'vout': input.prevout.n,
+                                'sequence': input.nSequence,
+                                'scriptSig': {
+                                    'hex': bitcoin.core.b2x(bytes(input.scriptSig))
+                                }
+                            }
+                            for input in transaction.vin],
+                        'vout': [{
+                            'value': output.nValue,
+                            'n': index,
+                            'scriptPubKey': {
+                                'hex': bitcoin.core.b2x(bytes(output.scriptPubKey))
                             }
                         }
-                        for input in transaction.vin],
-                    'vout': [{
-                        'value': output.nValue,
-                        'n': index,
-                        'scriptPubKey': {
-                            'hex': bitcoin.core.b2x(bytes(output.scriptPubKey))
-                        }
+                        for index, output in enumerate(transaction.vout)]
                     }
-                    for index, output in enumerate(transaction.vout)]
-                }
-            return get_transaction_json
+                else:
+                    return transaction
         else:
-            return lambda transaction: bitcoin.core.b2x(transaction.serialize())
+            def get_transaction_json(transaction):
+                if isinstance(transaction, bitcoin.core.CTransaction):
+                    return bitcoin.core.b2x(transaction.serialize())
+                else:
+                    return transaction
+
+        return get_transaction_json
 
     def run_rpc_server(self):
         if not self.configuration.rpc_enabled:

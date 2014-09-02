@@ -180,6 +180,62 @@ class ControllerTests(unittest.TestCase):
             },
             result)
 
+    def test_sendbitcoin_signed(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
+            unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransactiont_patch, \
+            unittest.mock.patch('openassets.protocol.ColoringEngine.get_output') as get_output_patch:
+
+            self.setup_mocks(listunspent_patch, get_output_patch, [
+                (20, self.addresses[0].script, self.assets[0].binary, 30),
+                (80, self.addresses[0].script, None, 0),
+                (50, self.addresses[1].script, None, 0),
+                (50, self.addresses[0].script, None, 0)
+            ])
+
+            signrawtransactiont_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
+
+            target = self.create_controller()
+
+            result = target.sendbitcoin(
+                address=self.addresses[0].address,
+                amount='100',
+                to=self.addresses[2].address,
+                fees='10',
+                mode='signed')
+
+            signrawtransactiont_patch.assert_called_once()
+            self.assertEqual(2, len(result['vin']))
+            self.assertEqual(2, len(result['vout']))
+
+    def test_sendbitcoin_broadcast(self):
+        with unittest.mock.patch('bitcoin.rpc.Proxy.listunspent') as listunspent_patch, \
+            unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction') as signrawtransaction_patch, \
+            unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction') as sendrawtransaction_patch, \
+            unittest.mock.patch('openassets.protocol.ColoringEngine.get_output') as get_output_patch:
+
+            self.setup_mocks(listunspent_patch, get_output_patch, [
+                (20, self.addresses[0].script, self.assets[0].binary, 30),
+                (80, self.addresses[0].script, None, 0),
+                (50, self.addresses[1].script, None, 0),
+                (50, self.addresses[0].script, None, 0)
+            ])
+
+            signrawtransaction_patch.side_effect = lambda transaction: {"complete": True, "tx": transaction}
+            sendrawtransaction_patch.return_value = b'transaction ID'
+
+            target = self.create_controller()
+
+            result = target.sendbitcoin(
+                address=self.addresses[0].address,
+                amount='100',
+                to=self.addresses[2].address,
+                fees='10',
+                mode='broadcast')
+
+            signrawtransaction_patch.assert_called_once()
+            sendrawtransaction_patch.assert_called_once()
+            self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
+
     # sendasset
 
     def test_sendasset_success(self):
@@ -396,7 +452,7 @@ class ControllerTests(unittest.TestCase):
         expected_json = json.dumps(expected, indent=4, sort_keys=False)
         actual_json = json.dumps(actual, indent=4, sort_keys=False)
 
-        self.assertEquals(expected_json, actual_json)
+        self.assertEqual(expected_json, actual_json)
 
     def get_input(self, index, script):
         return {
