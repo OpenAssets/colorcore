@@ -96,17 +96,12 @@ class Controller(object):
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = self._get_unspent_outputs(client, address)
 
-        if fees is None:
-            fees = self.configuration.default_fees
-        else:
-            fees = self._as_int(fees)
-
         transaction = builder.transfer_bitcoin(
             colored_outputs,
             Convert.base58_to_p2a_script(address),
             Convert.base58_to_p2a_script(to),
             self._as_int(amount),
-            fees)
+            self._get_fees(fees))
 
         return self.tx_parser(self._process_transaction(client, transaction, mode))
 
@@ -125,18 +120,13 @@ class Controller(object):
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = self._get_unspent_outputs(client, address)
 
-        if fees is None:
-            fees = self.configuration.default_fees
-        else:
-            fees = self._as_int(fees)
-
         transaction = builder.transfer_assets(
             colored_outputs,
             Convert.base58_to_p2a_script(address),
             Convert.base58_to_p2a_script(to),
             Convert.base58_to_asset_address(asset),
             self._as_int(amount),
-            fees)
+            self._get_fees(fees))
 
         return self.tx_parser(self._process_transaction(client, transaction, mode))
 
@@ -155,11 +145,6 @@ class Controller(object):
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = self._get_unspent_outputs(client, address)
 
-        if fees is None:
-            fees = self.configuration.default_fees
-        else:
-            fees = self._as_int(fees)
-
         if to is None:
             to = address
 
@@ -170,7 +155,7 @@ class Controller(object):
             Convert.base58_to_p2a_script(address),
             self._as_int(amount),
             bytes(metadata, encoding="utf-8"),
-            fees)
+            self._get_fees(fees))
 
         return self.tx_parser(self._process_transaction(client, transaction, mode))
 
@@ -193,18 +178,13 @@ class Controller(object):
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = self._get_unspent_outputs(client, address)
 
-        if fees is None:
-            fees = self.configuration.default_fees
-        else:
-            fees = self._as_int(fees)
-
         transactions = []
         summary = []
         for output in colored_outputs:
             incoming_transaction = client.getrawtransaction(output.out_point.hash)
             script = bytes(incoming_transaction.vout[0].scriptPubKey)
             collected, amount_issued, change = self._calculate_distribution(
-                output.output.nValue, self._as_decimal(price), fees, self.configuration.dust_limit)
+                output.output.nValue, self._as_decimal(price), self._get_fees(fees), self.configuration.dust_limit)
             if amount_issued > 0:
                 transaction = bitcoin.core.CTransaction(
                     vin=[bitcoin.core.CTxIn(output.out_point, output.output.scriptPubKey)],
@@ -264,6 +244,12 @@ class Controller(object):
             return decimal.Decimal(value)
         except ValueError:
             raise colorcore.program.ControllerError("Value '{}' is not a valid decimal number.".format(value))
+
+    def _get_fees(self, value):
+        if value is None:
+            return self.configuration.default_fees
+        else:
+            return self._as_int(value)
 
     @staticmethod
     def _get_unspent_outputs(client, address):
