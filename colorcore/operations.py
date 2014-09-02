@@ -60,7 +60,7 @@ class Controller(object):
 
             group_details = {
                 'address': base58,
-                'satoshiValue': total_value,
+                'value': total_value,
                 'assets': []
             }
 

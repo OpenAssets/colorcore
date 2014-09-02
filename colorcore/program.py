@@ -25,18 +25,21 @@
 import argparse
 import bitcoin.core
 import configparser
-import itertools
 import colorcore.operations
+import http.server
 import inspect
 import json
+import re
+import urllib.parse
 
 
 class Program(object):
 
     def execute(self):
-        self.configuration = Configuration()
-        self.router = Router(colorcore.operations.Controller, self.configuration)
-        self.router.parse()
+        configuration = Configuration()
+        router = Router(colorcore.operations.Controller, configuration,
+            "Colorcore: The Open Assets client for colored coins")
+        router.parse()
 
 
 class Configuration():
@@ -51,6 +54,62 @@ class Configuration():
         self.dust_limit = int(parser["environment"]["dust-limit"])
         self.default_fees = int(parser["environment"]["default-fees"])
 
+        if 'rpc' in parser:
+            self.rpc_port = int(parser['rpc']['port'])
+            self.rpc_enabled = True
+        else:
+            self.rpc_enabled = False
+
+
+class RpcServer(http.server.BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.error(101, 'Requests must be POST')
+
+    def do_POST(self):
+
+        url = re.search('^/(?P<operation>\w+)$', self.path)
+        if url is None:
+            return self.error(102, 'The request path is invalid')
+
+        operation_name = url.group('operation')
+        operation = getattr(self.server.controller, operation_name, None)
+
+        if operation_name == "" or operation_name[0] == "_" or operation is None:
+            return self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
+
+        length = int(self.headers['content-length'])
+
+        post_vars = {}
+        for key, value in urllib.parse.parse_qs(self.rfile.read(length), keep_blank_values=1).items():
+            post_vars[str(key, 'utf-8')] = str(value[0], 'utf-8')
+
+        controller = self.server.controller(self.server.configuration, None)
+
+        try:
+            result = operation(controller, **post_vars)
+        except TypeError:
+            return self.error(104, 'Invalid parameters provided')
+        except ControllerError as error:
+            return self.error(201, str(error))
+
+        self.set_headers(200)
+        self.json_response(result)
+
+    def set_headers(self, code):
+        self.server_version = 'Colorcore/' + colorcore.__version__
+        self.sys_version = ""
+        self.send_response(code)
+        self.send_header('Content-Type', 'text/json')
+        self.end_headers()
+
+    def error(self, code, message):
+        self.set_headers(400)
+        self.json_response({ 'error': { 'code': code, 'message': message } })
+
+    def json_response(self, data):
+        self.wfile.write(bytes(json.dumps(data, indent=4, separators=(',', ': ')), "utf-8"))
+
 
 class Router:
     """Infrastructure for routing command line calls to the right function."""
@@ -61,8 +120,12 @@ class Router:
 
     def __init__(self, controller, configuration, description=None):
         self.controller = controller
+        self.configuration = configuration
         self._parser = argparse.ArgumentParser(description=description)
         subparsers = self._parser.add_subparsers()
+
+        subparser = subparsers.add_parser("server", help="Starts the Colorcore JSON/RPC server")
+        subparser.set_defaults(_func=self.run_rpc_server)
 
         for name, function in inspect.getmembers(self.controller, predicate=inspect.isfunction):
             # Skip non-public functions
@@ -132,6 +195,18 @@ class Router:
             }
             for index, output in enumerate(transaction.vout)]
         }
+
+    def run_rpc_server(self):
+        if not self.configuration.rpc_enabled:
+            print("Error: RPC must be enabled in the configuration.")
+            return
+
+        print("Starting RPC server on port {port}...".format(port=self.configuration.rpc_port))
+
+        httpd = http.server.HTTPServer(('', self.configuration.rpc_port), RpcServer)
+        httpd.controller = self.controller
+        httpd.configuration = self.configuration
+        httpd.serve_forever()
 
     def parse(self):
         args = vars(self._parser.parse_args())
