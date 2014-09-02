@@ -31,6 +31,7 @@ import inspect
 import json
 import openassets.transactions
 import re
+import sys
 import urllib.parse
 
 
@@ -38,9 +39,12 @@ class Program(object):
 
     def execute(self):
         configuration = Configuration()
-        router = Router(colorcore.operations.Controller, configuration,
+        router = Router(
+            colorcore.operations.Controller,
+            sys.stdout,
+            configuration,
             "Colorcore: The Open Assets client for colored coins")
-        router.parse()
+        router.parse(sys.argv[1:])
 
 
 class Configuration():
@@ -85,10 +89,7 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
             for key, value in urllib.parse.parse_qs(self.rfile.read(length), keep_blank_values=1).items():
                 post_vars[str(key, 'utf-8')] = str(value[0], 'utf-8')
 
-            tx_parser = Router.get_transaction_formatter(post_vars.get('txformat', 'json'))
-
-            if 'txformat' in post_vars:
-                del post_vars['txformat']
+            tx_parser = Router.get_transaction_formatter(post_vars.pop('txformat', 'json'))
 
             controller = self.server.controller(self.server.configuration, tx_parser)
 
@@ -129,9 +130,10 @@ class Router:
         ('txformat', 'Format of transactions if a transaction is returned ("raw" or "json")', 'json')
     ]
 
-    def __init__(self, controller, configuration, description=None):
+    def __init__(self, controller, output, configuration, description=None):
         self.controller = controller
         self.configuration = configuration
+        self.output = output
         self._parser = argparse.ArgumentParser(description=description)
         subparsers = self._parser.add_subparsers()
 
@@ -171,12 +173,12 @@ class Router:
             try:
                 result = function(controller, *args, **kwargs)
 
-                print(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False))
+                self.output.write(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False))
 
             except ControllerError as error:
-                print("Error: {}".format(str(error)))
+                self.output.write("Error: {}".format(str(error)))
             except openassets.transactions.TransactionBuilderError as error:
-                print("Error: {}".format(type(error).__name__))
+                self.output.write("Error: {}".format(type(error).__name__))
 
         return decorator
 
@@ -219,18 +221,18 @@ class Router:
 
     def run_rpc_server(self):
         if not self.configuration.rpc_enabled:
-            print("Error: RPC must be enabled in the configuration.")
+            self.output.write("Error: RPC must be enabled in the configuration.")
             return
 
-        print("Starting RPC server on port {port}...".format(port=self.configuration.rpc_port))
+        self.output.write("Starting RPC server on port {port}...".format(port=self.configuration.rpc_port))
 
         httpd = http.server.HTTPServer(('', self.configuration.rpc_port), RpcServer)
         httpd.controller = self.controller
         httpd.configuration = self.configuration
         httpd.serve_forever()
 
-    def parse(self):
-        args = vars(self._parser.parse_args())
+    def parse(self, args):
+        args = vars(self._parser.parse_args(args))
         func = args.pop("_func", self._parser.print_usage)
         func(**args)
 

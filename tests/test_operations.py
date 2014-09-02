@@ -24,8 +24,9 @@
 
 import bitcoin.core
 import bitcoin.core.script
+import collections
 import colorcore.operations
-import colorcore.program
+import colorcore.routing
 import json
 import openassets.protocol
 import unittest
@@ -35,44 +36,44 @@ import unittest.mock
 class ControllerTests(unittest.TestCase):
 
     def setUp(self):
-        class Expando(object):
-            def __init__(self, **kwargs):
-                self.__dict__.update(kwargs)
         self.maxDiff = None
+
+        address = collections.namedtuple('Address', ['address', 'script', 'script_hex'])
         self.addresses = [
-            Expando(
+            address(
                 address='moogjqrTWfjkyxLHk9ytzp147EfXVvqLEP',
                 script=bitcoin.core.x('76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'),
                 script_hex='76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'
             ),
-            Expando(
+            address(
                 address='mpLppfoBWbdF9Y7zeN9sJHcbMzQvAeRqMs',
                 script=bitcoin.core.x('76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'),
                 script_hex='76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'
             ),
-            Expando(
+            address(
                 address='mr5im8BFT5ycERKHCgZoS7cRN5PewwTR4d',
                 script=bitcoin.core.x('76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'),
                 script_hex='76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'
             ),
-            Expando(
+            address(
                 address='mkN27mch2UtnRT28k8c5mQPYrW75cYdXUi',
                 script=bitcoin.core.x('76a914352813875577109204686b2e687f7ea046235aa588ac'),
                 script_hex='76a914352813875577109204686b2e687f7ea046235aa588ac'
             ),
-            Expando(
+            address(
                 address='msdzhXTdebVizEJnPrqGWFj5ruFRA8TLxF',
                 script=bitcoin.core.x('76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'),
                 script_hex='76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'
             )
         ]
 
+        asset = collections.namedtuple('Asset', ['address', 'binary'])
         self.assets = [
-            Expando(
+            asset(
                 address='qhTKTV1YV6VBaRx',
                 binary=b'asset1'
             ),
-            Expando(
+            asset(
                 address='mpLppfoBWbdF9Y7zeN9sJHcbMzQvAeRqMs',
                 binary=b'asset2'
             )
@@ -446,7 +447,7 @@ class ControllerTests(unittest.TestCase):
 
         return colorcore.operations.Controller(
             configuration,
-            colorcore.program.Router.get_transaction_formatter('json'))
+            colorcore.routing.Router.get_transaction_formatter('json'))
 
     def assert_response(self, expected, actual):
         expected_json = json.dumps(expected, indent=4, sort_keys=False)

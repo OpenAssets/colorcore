@@ -27,7 +27,7 @@ import bitcoin.core
 import bitcoin.core.serialize
 import bitcoin.core.script
 import bitcoin.rpc
-import colorcore.program
+import colorcore.routing
 import decimal
 import itertools
 import math

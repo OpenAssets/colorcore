@@ -28,9 +28,9 @@
 The main file for Colorcore.
 """
 
-import colorcore.program
+import colorcore.routing
 
 
 if __name__ == "__main__":
-    program = colorcore.program.Program()
+    program = colorcore.routing.Program()
     program.execute()
