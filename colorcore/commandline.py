@@ -129,6 +129,42 @@ def controller(configuration):
 
         print(result)
 
+    @parser.add
+    def issueasset(
+        address: "The address to issue the asset from",
+        amount: "The amount of units to send",
+        to: "The address to send the asset to; if unspecified, the assets are sent back to the issuing address"=None,
+        fees: "The fess in satoshis for the transaction"=None,
+        metadata: "The metadata to embed in the transaction"="",
+        mode: """'broadcast' (default) for signing and broadcasting the transaction,
+            'signed' for signing the transaction without broadcasting,
+            'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
+    ):
+        """Creates a transaction for sending an asset from an address to another."""
+        client = create_client()
+        builder = openassets.transactions.TransactionBuilder(configuration.dust_limit)
+        colored_outputs = get_unspent_outputs(client, address)
+
+        if fees is None:
+            fees = configuration.default_fees
+        else:
+            fees = as_int(fees)
+
+        if to is None:
+            to = address
+
+        transaction = builder.issue(
+            colored_outputs,
+            base58_to_p2a_script(address),
+            base58_to_p2a_script(to),
+            as_int(amount),
+            bytes(metadata, encoding="utf-8"),
+            fees)
+
+        result = process_transaction(client, transaction, mode)
+
+        print(result)
+
     # Helpers
 
     def create_client():
