@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # -*- coding: utf-8; -*-
 #
 # The MIT License (MIT)
@@ -24,13 +22,21 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-"""
-The main file for Colorcore.
-"""
+import configparser
+import colorcore.commandline
 
-import colorcore.program
+class Program(object):
+
+    def execute(self):
+        self.configuration = Configuration()
+        self.command_line = colorcore.commandline.controller(self.configuration)
 
 
-if __name__ == "__main__":
-    program = colorcore.program.Program()
-    program.execute()
+class Configuration():
+    def __init__(self):
+        parser = configparser.ConfigParser()
+        config_path = "config.ini"
+        parser.read(config_path)
+
+        self.rpc_url = parser["bitcoind"]["rpcurl"]
+

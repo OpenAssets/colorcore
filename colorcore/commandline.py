@@ -22,7 +22,82 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-class ColorCoreProgram(object):
+import argparse
+import bitcoin.rpc
+import inspect
+import openassets.protocol
 
-    def execute(self):
-        pass
+def controller(configuration):
+    parser = _Router("Colorcore: The colored coins Open Asset client")
+
+    # Commands
+
+    @parser.add
+    def getbalance(
+            address: "Obtain the balance of this address only"=None,
+            minconf: "The minimum number of confirmations (inclusive)"="1",
+            maxconf: "The maximum number of confirmations (inclusive)"="9999999"):
+        """Obtains the balance of the wallet or an address"""
+        client = create_client()
+        result = client.listunspent(as_int(minconf), as_int(maxconf))
+        print(result)
+
+    # Helpers
+
+    def create_client():
+        return bitcoin.rpc.Proxy(configuration.rpc_url)
+        #return openassets.protocol.ColoringEngine(client.gettransaction, openassets.protocol.OutputCache)
+
+    def as_int(value):
+        try:
+            return int(value)
+        except ValueError:
+            raise CommandLineError("Value '{}' is not a valid integer.".format(value))
+
+
+    parser.parse()
+    return parser
+
+
+class _Router:
+    def __init__(self, description=None):
+        self._parser = argparse.ArgumentParser(description=description)
+        self._subparsers = self._parser.add_subparsers()
+
+    def add(self, func):
+        subparser = self._subparsers.add_parser(func.__name__, help=func.__doc__)
+        subparser.set_defaults(_func=self.filter_errors(func))
+        func_signature = inspect.signature(func)
+        for name, arg in func_signature.parameters.items():
+            if arg.kind != arg.POSITIONAL_OR_KEYWORD:
+                continue
+            arg_help = arg.annotation if arg.annotation is not arg.empty else None
+            if arg.default is arg.empty:
+                # a positional argument
+                subparser.add_argument(name, help=arg_help)
+            else:
+                # an optional argument
+                subparser.add_argument("--" + name,
+                    help=arg_help,
+                    nargs="?",
+                    default=arg.default)
+        return func
+
+    def parse(self):
+        args = vars(self._parser.parse_args())
+        func = args.pop("_func", self._parser.print_usage)
+        func(**args)
+
+    @staticmethod
+    def filter_errors(function):
+        def decorator(*args, **kwargs):
+            try:
+                return function(*args, **kwargs)
+            except CommandLineError as error:
+                print("Error: {}".format(str(error)))
+
+        return decorator
+
+
+class CommandLineError(Exception):
+    pass
