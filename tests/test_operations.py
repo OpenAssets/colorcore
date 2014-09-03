@@ -459,7 +459,7 @@ class ControllerTests(unittest.TestCase):
 
     def create_controller(self, format='json'):
         configuration = unittest.mock.MagicMock()
-        configuration.rpc_url = "RPC URL"
+        configuration.rpc_url = 'RPC URL'
         configuration.version_byte = 111
         configuration.p2sh_version_byte = 196
         configuration.dust_limit = 10

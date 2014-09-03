@@ -43,14 +43,14 @@ class Controller(object):
 
     def getbalance(self,
         address: "Obtain the balance of this address only"=None,
-        minconf: "The minimum number of confirmations (inclusive)"="1",
-        maxconf: "The maximum number of confirmations (inclusive)"="9999999"
+        minconf: "The minimum number of confirmations (inclusive)"='1',
+        maxconf: "The maximum number of confirmations (inclusive)"='9999999'
     ):
         """Obtains the balance of the wallet or an address."""
         client = self._create_client()
         result = client.listunspent(self._as_int(minconf), self._as_int(maxconf), [address] if address else None)
         engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
-        colored_outputs = [engine.get_output(item["outpoint"].hash, item["outpoint"].n) for item in result]
+        colored_outputs = [engine.get_output(item['outpoint'].hash, item['outpoint'].n) for item in result]
 
         sorted_outputs = sorted(colored_outputs, key=lambda output: output.scriptPubKey)
 
@@ -89,7 +89,7 @@ class Controller(object):
         fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' (default) for signing and broadcasting the transaction,
             'signed' for signing the transaction without broadcasting,
-            'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
+            'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending bitcoins from an address to another."""
         client = self._create_client()
@@ -113,7 +113,7 @@ class Controller(object):
         fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' (default) for signing and broadcasting the transaction,
             'signed' for signing the transaction without broadcasting,
-            'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
+            'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending an asset from an address to another."""
         client = self._create_client()
@@ -134,11 +134,11 @@ class Controller(object):
         address: "The address to issue the asset from",
         amount: "The amount of units to send",
         to: "The address to send the asset to; if unspecified, the assets are sent back to the issuing address"=None,
-        metadata: "The metadata to embed in the transaction"="",
+        metadata: "The metadata to embed in the transaction"='',
         fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' (default) for signing and broadcasting the transaction,
             'signed' for signing the transaction without broadcasting,
-            'unsigned' for getting the raw unsigned transaction without broadcasting"""="broadcast"
+            'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for issuing an asset."""
         client = self._create_client()
@@ -154,7 +154,7 @@ class Controller(object):
             Convert.base58_to_p2a_script(to),
             Convert.base58_to_p2a_script(address),
             self._as_int(amount),
-            bytes(metadata, encoding="utf-8"),
+            bytes(metadata, encoding='utf-8'),
             self._get_fees(fees))
 
         return self.tx_parser(self._process_transaction(client, transaction, mode))
@@ -163,12 +163,12 @@ class Controller(object):
         address: "The address to distribute the asset from",
         forward_address: "The address where to forward the collected bitcoin funds",
         price: "Price of an asset unit in satoshis",
-        metadata: "The metadata to embed in the transaction"="",
+        metadata: "The metadata to embed in the transaction"='',
         fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' for signing and broadcasting the transaction,
             'signed' for signing the transaction without broadcasting,
             'unsigned' for getting the raw unsigned transaction without broadcasting,
-            'preview' (default) for displaying a preview of the transactions"""="preview"
+            'preview' (default) for displaying a preview of the transactions"""='preview'
     ):
         """For every inbound transaction sending bitcoins to 'address', create an outbound transaction sending back
         to the sender newly issued assets, and send the bitcoins to the forward address. The number of issued coins
@@ -191,7 +191,7 @@ class Controller(object):
                     vin=[bitcoin.core.CTxIn(output.out_point, output.output.scriptPubKey)],
                     vout=[
                         builder._get_colored_output(script),
-                        builder._get_marker_output([amount_issued], bytes(metadata, encoding="utf-8")),
+                        builder._get_marker_output([amount_issued], bytes(metadata, encoding='utf-8')),
                         builder._get_uncolored_output(Convert.base58_to_p2a_script(forward_address), collected)
                     ]
                 )

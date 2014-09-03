@@ -51,14 +51,14 @@ class Program(object):
 class Configuration():
     def __init__(self):
         parser = configparser.ConfigParser()
-        config_path = "config.ini"
+        config_path = 'config.ini'
         parser.read(config_path)
 
-        self.rpc_url = parser["bitcoind"]["rpcurl"]
-        self.version_byte = int(parser["environment"]["version-byte"])
-        self.p2sh_version_byte = int(parser["environment"]["p2sh-version-byte"])
-        self.dust_limit = int(parser["environment"]["dust-limit"])
-        self.default_fees = int(parser["environment"]["default-fees"])
+        self.rpc_url = parser['bitcoind']['rpcurl']
+        self.version_byte = int(parser['environment']['version-byte'])
+        self.p2sh_version_byte = int(parser['environment']['p2sh-version-byte'])
+        self.dust_limit = int(parser['environment']['dust-limit'])
+        self.default_fees = int(parser['environment']['default-fees'])
 
         if 'rpc' in parser:
             self.rpc_port = int(parser['rpc']['port'])
@@ -81,7 +81,7 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
             operation_name = url.group('operation')
             operation = getattr(self.server.controller, operation_name, None)
 
-            if operation_name == "" or operation_name[0] == "_" or operation is None:
+            if operation_name == '' or operation_name[0] == '_' or operation is None:
                 return self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
 
             length = int(self.headers['content-length'])
@@ -111,7 +111,7 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
 
     def set_headers(self, code):
         self.server_version = 'Colorcore/' + colorcore.__version__
-        self.sys_version = ""
+        self.sys_version = ''
         self.send_response(code)
         self.send_header('Content-Type', 'text/json')
         self.end_headers()
@@ -121,14 +121,14 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
         self.json_response({'error': {'code': code, 'message': message}})
 
     def json_response(self, data):
-        self.wfile.write(bytes(json.dumps(data, indent=4, separators=(',', ': ')), "utf-8"))
+        self.wfile.write(bytes(json.dumps(data, indent=4, separators=(',', ': ')), 'utf-8'))
 
 
 class Router:
     """Infrastructure for routing command line calls to the right function."""
 
     extra_parameters = [
-        ('txformat', 'Format of transactions if a transaction is returned ("raw" or "json")', 'json')
+        ('txformat', "Format of transactions if a transaction is returned ('raw' or 'json')", 'json')
     ]
 
     def __init__(self, controller, output, configuration, description=None):
@@ -138,12 +138,12 @@ class Router:
         self._parser = argparse.ArgumentParser(description=description)
         subparsers = self._parser.add_subparsers()
 
-        subparser = subparsers.add_parser("server", help="Starts the Colorcore JSON/RPC server.")
+        subparser = subparsers.add_parser('server', help="Starts the Colorcore JSON/RPC server.")
         subparser.set_defaults(_func=self.run_rpc_server)
 
         for name, function in inspect.getmembers(self.controller, predicate=inspect.isfunction):
             # Skip non-public functions
-            if name[0] != "_":
+            if name[0] != '_':
                 subparser = subparsers.add_parser(name, help=function.__doc__)
                 self.create_subparser(subparser, configuration, function)
 
@@ -151,7 +151,7 @@ class Router:
         subparser.set_defaults(_func=self.execute_operation(configuration, func))
         func_signature = inspect.signature(func)
         for name, arg in func_signature.parameters.items():
-            if name == "self":
+            if name == 'self':
                 continue
             if arg.kind != arg.POSITIONAL_OR_KEYWORD:
                 continue
@@ -162,10 +162,10 @@ class Router:
                 subparser.add_argument(name, help=arg_help)
             else:
                 # an optional argument
-                subparser.add_argument("--" + name, help=arg_help, nargs="?", default=arg.default)
+                subparser.add_argument('--' + name, help=arg_help, nargs='?', default=arg.default)
 
         for name, help, default in self.extra_parameters:
-            subparser.add_argument("--" + name, help=help, nargs="?", default=default)
+            subparser.add_argument('--' + name, help=help, nargs='?', default=default)
 
     def execute_operation(self, configuration, function):
         def decorator(*args, txformat, **kwargs):
@@ -185,7 +185,7 @@ class Router:
 
     @staticmethod
     def get_transaction_formatter(format):
-        if format == "json":
+        if format == 'json':
             def get_transaction_json(transaction):
                 if isinstance(transaction, bitcoin.core.CTransaction):
                     return {
@@ -238,7 +238,7 @@ class Router:
 
     def parse(self, args):
         args = vars(self._parser.parse_args(args))
-        func = args.pop("_func", self._parser.print_usage)
+        func = args.pop('_func', self._parser.print_usage)
         func(**args)
 
 
