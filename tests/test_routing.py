@@ -49,37 +49,39 @@ class RouterTests(unittest.TestCase):
 
         self.assertEqual('Error: InsufficientAssetQuantityError\n', self.output.getvalue())
 
-    def test_parse_help(self):
+    @unittest.mock.patch('argparse.ArgumentParser.exit', autospec=True)
+    def test_parse_help(self, exit_mock):
         router = self.create_router()
-        with unittest.mock.patch('argparse.ArgumentParser.exit') as error_patch, \
-            unittest.mock.patch('argparse._sys', stdout=self.output):
-            error_patch.side_effect = SystemError
+        with unittest.mock.patch('argparse._sys', stdout=self.output, autospec=True):
+            exit_mock.side_effect = SystemError
 
             self.assertRaises(SystemError, router.parse, ['test_operation', '--help'])
             self.assertIn('help1', self.output.getvalue())
             self.assertIn('help2', self.output.getvalue())
             self.assertIn('help3', self.output.getvalue())
 
-    def test_parse_server(self):
+    @unittest.mock.patch('http.server.HTTPServer.serve_forever', autospec=True)
+    def test_parse_server(self, serve_forever_mock):
         router = self.create_router()
         self.configuration.rpc_enabled = True
         self.configuration.rpc_port = 8080
-        with unittest.mock.patch('http.server.HTTPServer.serve_forever') as serve_forever_patch:
-            serve_forever_patch.return_value = None
+        serve_forever_mock.return_value = None
 
-            router.parse(['server'])
-            self.assertIn('Starting RPC server on port 8080...\n', self.output.getvalue())
-            serve_forever_patch.assert_called_with()
+        router.parse(['server'])
 
-    def test_parse_server_not_enabled(self):
+        self.assertIn('Starting RPC server on port 8080...\n', self.output.getvalue())
+        self.assertEqual(1, serve_forever_mock.call_count)
+
+    @unittest.mock.patch('http.server.HTTPServer.serve_forever', autospec=True)
+    def test_parse_server_not_enabled(self, serve_forever_mock):
         router = self.create_router()
         self.configuration.rpc_enabled = False
         self.configuration.rpc_port = 8080
-        with unittest.mock.patch('http.server.HTTPServer.serve_forever') as serve_forever_patch:
 
-            router.parse(['server'])
-            self.assertIn('Error: RPC must be enabled in the configuration.\n', self.output.getvalue())
-            serve_forever_patch.assert_not_called()
+        router.parse(['server'])
+
+        self.assertIn('Error: RPC must be enabled in the configuration.\n', self.output.getvalue())
+        self.assertEqual(0, serve_forever_mock.call_count)
 
     def create_router(self):
         class MockController(object):
