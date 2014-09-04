@@ -48,6 +48,10 @@ All the configuration for Colorcore is done though the ``config.ini`` file::
     dust-limit=600
     default-fees=10000
 
+    [cache]
+    # Path of the cache file (use :memory: to disable)
+    path=cache.db
+
     [rpc]
     # The port on which to expose the Colorcore RPC interface
     port=8080
