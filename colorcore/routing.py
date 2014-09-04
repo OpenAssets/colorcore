@@ -25,6 +25,7 @@
 import argparse
 import bitcoin.core
 import configparser
+import colorcore.caching
 import colorcore.operations
 import http.server
 import inspect
@@ -37,18 +38,23 @@ import urllib.parse
 
 
 class Program(object):
+    """Main entry point of Colorcore."""
+
     @staticmethod
     def execute():
         configuration = Configuration()
         router = Router(
             colorcore.operations.Controller,
             sys.stdout,
+            lambda: colorcore.caching.SqliteCache(configuration.cache_path),
             configuration,
             "Colorcore: The Open Assets client for colored coins")
         router.parse(sys.argv[1:])
 
 
 class Configuration():
+    """Class for managing the Colorcore configuration file."""
+
     def __init__(self):
         parser = configparser.ConfigParser()
         config_path = 'config.ini'
@@ -59,6 +65,7 @@ class Configuration():
         self.p2sh_version_byte = int(parser['environment']['p2sh-version-byte'])
         self.dust_limit = int(parser['environment']['dust-limit'])
         self.default_fees = int(parser['environment']['default-fees'])
+        self.cache_path = parser['cache']['path']
 
         if 'rpc' in parser:
             self.rpc_port = int(parser['rpc']['port'])
@@ -68,6 +75,7 @@ class Configuration():
 
 
 class RpcServer(http.server.BaseHTTPRequestHandler):
+    """The HTTP handler used to respond to JSON/RPC requests."""
 
     def do_GET(self):
         self.error(101, 'Requests must be POST')
@@ -78,6 +86,7 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
             if url is None:
                 return self.error(102, 'The request path is invalid')
 
+            # Get the operation function corresponding to the URL path
             operation_name = url.group('operation')
             operation = getattr(self.server.controller, operation_name, None)
 
@@ -131,24 +140,25 @@ class Router:
         ('txformat', "Format of transactions if a transaction is returned ('raw' or 'json')", 'json')
     ]
 
-    def __init__(self, controller, output, configuration, description=None):
+    def __init__(self, controller, output, cache_factory, configuration, description=None):
         self.controller = controller
         self.configuration = configuration
         self.output = output
+        self.cache_factory = cache_factory
         self._parser = argparse.ArgumentParser(description=description)
         subparsers = self._parser.add_subparsers()
 
         subparser = subparsers.add_parser('server', help="Starts the Colorcore JSON/RPC server.")
-        subparser.set_defaults(_func=self.run_rpc_server)
+        subparser.set_defaults(_func=self._run_rpc_server)
 
         for name, function in inspect.getmembers(self.controller, predicate=inspect.isfunction):
             # Skip non-public functions
             if name[0] != '_':
                 subparser = subparsers.add_parser(name, help=function.__doc__)
-                self.create_subparser(subparser, configuration, function)
+                self._create_subparser(subparser, configuration, function)
 
-    def create_subparser(self, subparser, configuration, func):
-        subparser.set_defaults(_func=self.execute_operation(configuration, func))
+    def _create_subparser(self, subparser, configuration, func):
+        subparser.set_defaults(_func=self._execute_operation(configuration, func))
         func_signature = inspect.signature(func)
         for name, arg in func_signature.parameters.items():
             if name == 'self':
@@ -167,24 +177,36 @@ class Router:
         for name, help, default in self.extra_parameters:
             subparser.add_argument('--' + name, help=help, nargs='?', default=default)
 
-    def execute_operation(self, configuration, function):
+    def _execute_operation(self, configuration, function):
         def decorator(*args, txformat, **kwargs):
-            controller = self.controller(configuration, self.get_transaction_formatter(txformat))
+            # Instantiate the controller
+            controller = self.controller(configuration, self.cache_factory, self.get_transaction_formatter(txformat))
 
             try:
+                # Execute the operation on the controller
                 result = function(controller, *args, **kwargs)
 
+                # Write the output of the operation onto the output stream
                 self.output.write(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False) + '\n')
 
             except ControllerError as error:
+                # The controller raised a known error
                 self.output.write("Error: {}\n".format(str(error)))
             except openassets.transactions.TransactionBuilderError as error:
+                # A transaction could not be built
                 self.output.write("Error: {}\n".format(type(error).__name__))
 
         return decorator
 
     @staticmethod
     def get_transaction_formatter(format):
+        """
+        Returns a function for formatting output.
+
+        :param str format: Either 'json' for returning a JSON representation of the transaction, or 'raw' to return the
+            hex-encoded raw transaction. If the object is not a transaction, it is returned unmodified.
+        :return: The formatted response.
+        """
         if format == 'json':
             def get_transaction_json(transaction):
                 if isinstance(transaction, bitcoin.core.CTransaction):
@@ -220,12 +242,16 @@ class Router:
 
         return get_transaction_json
 
-    def run_rpc_server(self):
+    def _run_rpc_server(self):
+        """
+        Starts the JSON/RPC server.
+        """
         if not self.configuration.rpc_enabled:
             self.output.write("Error: RPC must be enabled in the configuration.\n")
             return
 
         class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+            """The multi-threaded HTTP server."""
             daemon_threads = True
             allow_reuse_address = True
 
@@ -237,10 +263,16 @@ class Router:
         httpd.serve_forever()
 
     def parse(self, args):
+        """
+        Parses the arguments and executes the corresponding operation.
+
+        :param list[str] args: The arguments to parse.
+        """
         args = vars(self._parser.parse_args(args))
         func = args.pop('_func', self._parser.print_usage)
         func(**args)
 
 
 class ControllerError(Exception):
+    """A known error occurred while executing the operation."""
     pass

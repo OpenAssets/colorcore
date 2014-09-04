@@ -85,7 +85,7 @@ class RouterTests(unittest.TestCase):
 
     def create_router(self):
         class MockController(object):
-            def __init__(self, configuration, *args):
+            def __init__(self, configuration, cache_factory, *args):
                 pass
 
             def test_operation(self, parameter1: 'help1', parameter2: 'help2', parameter3: 'help3'='default'):
@@ -102,4 +102,4 @@ class RouterTests(unittest.TestCase):
 
         self.configuration = unittest.mock.Mock()
         self.output = io.StringIO()
-        return colorcore.routing.Router(MockController, self.output, self.configuration)
+        return colorcore.routing.Router(MockController, self.output, object, self.configuration)

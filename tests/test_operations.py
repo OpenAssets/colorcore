@@ -445,8 +445,13 @@ class ControllerTests(unittest.TestCase):
         configuration.dust_limit = 10
         configuration.default_fees = 15
 
+        class MockCache(openassets.protocol.OutputCache):
+            def commit(self):
+                pass
+
         return colorcore.operations.Controller(
             configuration,
+            MockCache,
             colorcore.routing.Router.get_transaction_formatter(format))
 
     def assert_response(self, expected, actual):

@@ -37,9 +37,10 @@ import openassets.transactions
 
 class Controller(object):
 
-    def __init__(self, configuration, tx_parser):
+    def __init__(self, configuration, cache_factory, tx_parser):
         self.configuration = configuration
         self.tx_parser = tx_parser
+        self.cache_factory = cache_factory
 
     def getbalance(self,
         address: "Obtain the balance of this address only"=None,
@@ -48,9 +49,7 @@ class Controller(object):
     ):
         """Obtains the balance of the wallet or an address."""
         client = self._create_client()
-        result = client.listunspent(self._as_int(minconf), self._as_int(maxconf), [address] if address else None)
-        engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
-        colored_outputs = [engine.get_output(item['outpoint'].hash, item['outpoint'].n) for item in result]
+        colored_outputs = [output.output for output in self._get_unspent_outputs(client, address)]
 
         sorted_outputs = sorted(colored_outputs, key=lambda output: output.scriptPubKey)
 
@@ -254,14 +253,18 @@ class Controller(object):
         else:
             return self._as_int(value)
 
-    @staticmethod
-    def _get_unspent_outputs(client, address):
-        engine = openassets.protocol.ColoringEngine(client.getrawtransaction, openassets.protocol.OutputCache())
-        result = client.listunspent(addrs=[address] if address else None)
-        return [
+    def _get_unspent_outputs(self, client, address, *args):
+        cache = self.cache_factory()
+        engine = openassets.protocol.ColoringEngine(client.getrawtransaction, cache)
+        unspent = client.listunspent(addrs=[address] if address else None, *args)
+        result = [
             openassets.transactions.SpendableOutput(
             bitcoin.core.COutPoint(item['outpoint'].hash, item['outpoint'].n),
-            engine.get_output(item['outpoint'].hash, item['outpoint'].n)) for item in result]
+            engine.get_output(item['outpoint'].hash, item['outpoint'].n)) for item in unspent]
+
+        # Commit new outputs to cache
+        cache.commit()
+        return result
 
     @staticmethod
     def _process_transaction(client, transaction, mode):
