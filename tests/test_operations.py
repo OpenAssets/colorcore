@@ -99,12 +99,12 @@ class ControllerTests(unittest.TestCase):
                 {
                     'address': self.addresses[0].address,
                     'value': '0.00000100',
-                    'assets': [{'assetAddress': self.assets[0].address, 'quantity': '30'}]
+                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '30'}]
                 },
                 {
                     'address': self.addresses[1].address,
                     'value': '0.00000050',
-                    'assets': [{'assetAddress': self.assets[0].address, 'quantity':'10'}]
+                    'assets': [{'asset_address': self.assets[0].address, 'quantity':'10'}]
                 }
             ],
             result)
@@ -132,7 +132,7 @@ class ControllerTests(unittest.TestCase):
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
     def test_sendbitcoin_signed_success(self, signrawtransaction_mock, *args):
-        signrawtransaction_mock.side_effect = lambda self, transaction: {"complete": True, "tx": transaction}
+        signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': True, 'tx': transaction}
         result = self._setup_sendbitcoin_test('signed', 'json')
 
         self.assertEqual(1, signrawtransaction_mock.call_count)
@@ -141,7 +141,7 @@ class ControllerTests(unittest.TestCase):
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
     def test_sendbitcoin_signed_invalid_signature(self, signrawtransaction_mock, *args):
-        signrawtransaction_mock.side_effect = lambda self, transaction: {"complete": False}
+        signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': False}
 
         self.assertRaises(colorcore.routing.ControllerError, self._setup_sendbitcoin_test, 'signed', 'json')
         self.assertEqual(1, signrawtransaction_mock.call_count)
@@ -149,7 +149,7 @@ class ControllerTests(unittest.TestCase):
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
     @unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction', autospec=True)
     def test_sendbitcoin_broadcast(self, sendrawtransaction_mock, signrawtransaction_mock, *args):
-        signrawtransaction_mock.side_effect = lambda self, transaction: {"complete": True, "tx": transaction}
+        signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': True, 'tx': transaction}
         sendrawtransaction_mock.return_value = b'transaction ID'
         result = self._setup_sendbitcoin_test('broadcast', 'json')
 
@@ -170,7 +170,7 @@ class ControllerTests(unittest.TestCase):
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
     @unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction', autospec=True)
     def test_sendbitcoin_raw_broadcast(self, sendrawtransaction_mock, signrawtransaction_mock, *args):
-        signrawtransaction_mock.side_effect = lambda self, transaction: {"complete": True, "tx": transaction}
+        signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': True, 'tx': transaction}
         sendrawtransaction_mock.return_value = b'transaction ID'
         result = self._setup_sendbitcoin_test('broadcast', 'raw')
 

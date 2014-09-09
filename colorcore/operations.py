@@ -74,7 +74,7 @@ class Controller(object):
             for asset_address, outputs in itertools.groupby(sorted_script_outputs, lambda output: output.asset_address):
                 total_quantity = sum([item.asset_quantity for item in outputs])
                 group_details['assets'].append({
-                    'assetAddress':
+                    'asset_address':
                         Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
                     'quantity': str(total_quantity)
                 })
