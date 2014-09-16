@@ -93,7 +93,7 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
             if operation_name == '' or operation_name[0] == '_' or operation is None:
                 return self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
 
-            length = int(self.headers['content-length'])
+            length = int(self.headers.get('content-length', '0'))
 
             post_vars = {}
             for key, value in urllib.parse.parse_qs(self.rfile.read(length), keep_blank_values=1).items():
@@ -101,7 +101,7 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
 
             tx_parser = Router.get_transaction_formatter(post_vars.pop('txformat', 'json'))
 
-            controller = self.server.controller(self.server.configuration, tx_parser)
+            controller = self.server.controller(self.server.configuration, self.server.cache_factory, tx_parser)
 
             try:
                 result = operation(controller, **post_vars)
@@ -114,9 +114,9 @@ class RpcServer(http.server.BaseHTTPRequestHandler):
 
             self.set_headers(200)
             self.json_response(result)
-        except:
+        except Exception as exception:
             self.set_headers(500)
-            self.json_response({'error': {'code': 0, 'message': 'Internal server error'}})
+            self.json_response({'error': {'code': 0, 'message': 'Internal server error', 'details': str(exception)}})
 
     def set_headers(self, code):
         self.server_version = 'Colorcore/' + colorcore.__version__
@@ -260,6 +260,7 @@ class Router:
         httpd = ThreadedHTTPServer(('', self.configuration.rpc_port), RpcServer)
         httpd.controller = self.controller
         httpd.configuration = self.configuration
+        httpd.cache_factory = self.cache_factory
         httpd.serve_forever()
 
     def parse(self, args):
