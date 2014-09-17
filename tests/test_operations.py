@@ -77,7 +77,7 @@ class ControllerTests(unittest.TestCase):
                 binary=b'asset1'
             ),
             asset(
-                address='mpLppfoBWbdF9Y7zeN9sJHcbMzQvAeRqMs',
+                address='qhTKTV1YVE1kJfp',
                 binary=b'asset2'
             )
         ]
@@ -104,7 +104,51 @@ class ControllerTests(unittest.TestCase):
                 {
                     'address': self.addresses[1].address,
                     'value': '0.00000050',
-                    'assets': [{'asset_address': self.assets[0].address, 'quantity':'10'}]
+                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '10'}]
+                }
+            ],
+            result)
+
+    # listunspent
+
+    def test_listunspent_success(self, *args):
+        self.setup_mocks([
+            (20, self.addresses[0].script, self.assets[0].binary, 30),
+            (50, self.addresses[1].script, self.assets[1].binary, 10),
+            (80, self.addresses[0].script, None, 0)
+        ])
+
+        target = self.create_controller()
+
+        result = target.listunspent()
+
+        self.assert_response([
+                {
+                    'txid': '30' * 32,
+                    'vout': 0,
+                    'address': self.addresses[0].address,
+                    'script': self.addresses[0].script_hex,
+                    'amount': '0.00000020',
+                    'asset_address': self.assets[0].address,
+                    'asset_quantity': '30'
+                },
+                {
+                    'txid': '31' * 32,
+                    'vout': 1,
+                    'address': self.addresses[1].address,
+                    'script': self.addresses[1].script_hex,
+                    'amount': '0.00000050',
+                    'asset_address': self.assets[1].address,
+                    'asset_quantity': '10'
+                },
+                {
+                    'txid': '32' * 32,
+                    'vout': 2,
+                    'address': self.addresses[0].address,
+                    'script': self.addresses[0].script_hex,
+                    'amount': '0.00000080',
+                    'asset_address': None,
+                    'asset_quantity': '0'
                 }
             ],
             result)
@@ -392,16 +436,16 @@ class ControllerTests(unittest.TestCase):
 
         self.assert_response([{
             'from': self.addresses[3].address,
-            'received': "0.00000061 BTC",
-            'collected': "0.00000020 BTC",
-            'sent': "1 Units",
+            'received': '0.00000061 BTC',
+            'collected': '0.00000020 BTC',
+            'sent': '1 Units',
             'transaction': bitcoin.core.b2lx(bytes('0', 'utf-8') * 32)
         },
         {
             'from': self.addresses[4].address,
-            'received': "0.00000071 BTC",
-            'collected': "0.00000046 BTC",
-            'sent': "2 Units",
+            'received': '0.00000071 BTC',
+            'collected': '0.00000046 BTC',
+            'sent': '2 Units',
             'transaction': bitcoin.core.b2lx(bytes('1', 'utf-8') * 32)
         }],
         result)

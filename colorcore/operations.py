@@ -43,7 +43,7 @@ class Controller(object):
         self.cache_factory = cache_factory
 
     def getbalance(self,
-        address: "Obtain the balance of this address only"=None,
+        address: "Obtain the balance of this address only, or all addresses if unspecified"=None,
         minconf: "The minimum number of confirmations (inclusive)"='1',
         maxconf: "The maximum number of confirmations (inclusive)"='9999999'
     ):
@@ -78,6 +78,34 @@ class Controller(object):
                         Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
                     'quantity': str(total_quantity)
                 })
+
+        return table
+
+    def listunspent(self,
+        address: "Obtain the balance of this address only, or all addresses if unspecified"=None,
+        minconf: "The minimum number of confirmations (inclusive)"='1',
+        maxconf: "The maximum number of confirmations (inclusive)"='9999999'
+    ):
+        """Returns an array of unspent transaction outputs with between minconf and maxconf (inclusive) confirmations,
+        and augmented with asset information (asset address and quantity)."""
+        client = self._create_client()
+        unspent_outputs = self._get_unspent_outputs(client, address)
+
+        table = []
+        for output in unspent_outputs:
+            table.append({
+                'txid': bitcoin.core.b2lx(output.out_point.hash),
+                'vout': output.out_point.n,
+                'address': Convert.script_to_base58_p2a(output.output.scriptPubKey, self.configuration.version_byte),
+                'script': bitcoin.core.b2x(output.output.scriptPubKey),
+                'amount': Convert.to_coin(output.output.nValue),
+                'asset_address':
+                    None if output.output.asset_address is None
+                    else Convert.asset_address_to_base58(
+                        output.output.asset_address,
+                        self.configuration.p2sh_version_byte),
+                'asset_quantity': str(output.output.asset_quantity)
+            })
 
         return table
 
