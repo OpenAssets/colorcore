@@ -12,7 +12,7 @@ Requirements
 
 The following items are required for using Colorcore:
 
-* `Python 3 <https://www.python.org/downloads/>`_
+* `Python 3.4 <https://www.python.org/downloads/>`_
 * The `openassets <https://github.com/openassets/openassets>`_ package
 * The `python-bitcoinlib <https://github.com/petertodd/python-bitcoinlib>`_ package
 * An operational Bitcoin Core wallet with JSON/RPC enabled and full transaction index
@@ -124,7 +124,7 @@ Fees can be specified through the ``--fees`` argument, and the default amount fo
 
 Once you have colored coins on one address, make sure you use the ``sendbitcoin`` operation to send uncolored bitcoins from that address. If you use Bitcoin Core to send bitcoins, Bitcoin Core might spend your colored outputs as it is not aware of colored coins.
 
-If RPC is enabled, it is highly recommended to use a firewall to prevent access to Colorcore from a remote machine.
+If RPC is enabled, it is highly recommended to use a firewall to prevent access to Colorcore from an unauthorized remote machine.
 
 License
 =======
