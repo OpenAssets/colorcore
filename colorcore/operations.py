@@ -49,7 +49,8 @@ class Controller(object):
     ):
         """Obtains the balance of the wallet or an address."""
         client = self._create_client()
-        colored_outputs = [output.output for output in self._get_unspent_outputs(client, address)]
+        colored_outputs = [output.output for output in
+            self._get_unspent_outputs(client, address, self._as_int(minconf), self._as_int(maxconf))]
 
         sorted_outputs = sorted(colored_outputs, key=lambda output: output.scriptPubKey)
 
@@ -86,10 +87,10 @@ class Controller(object):
         minconf: "The minimum number of confirmations (inclusive)"='1',
         maxconf: "The maximum number of confirmations (inclusive)"='9999999'
     ):
-        """Returns an array of unspent transaction outputs with between minconf and maxconf (inclusive) confirmations,
-        and augmented with asset information (asset address and quantity)."""
+        """Returns an array of unspent transaction outputs augmented with the asset address and quantity of
+        each output."""
         client = self._create_client()
-        unspent_outputs = self._get_unspent_outputs(client, address)
+        unspent_outputs = self._get_unspent_outputs(client, address, self._as_int(minconf), self._as_int(maxconf))
 
         table = []
         for output in unspent_outputs:
