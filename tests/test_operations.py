@@ -129,6 +129,7 @@ class ControllerTests(unittest.TestCase):
                     'address': self.addresses[0].address,
                     'script': self.addresses[0].script_hex,
                     'amount': '0.00000020',
+                    'confirmations': 0,
                     'asset_address': self.assets[0].address,
                     'asset_quantity': '30'
                 },
@@ -138,6 +139,7 @@ class ControllerTests(unittest.TestCase):
                     'address': self.addresses[1].address,
                     'script': self.addresses[1].script_hex,
                     'amount': '0.00000050',
+                    'confirmations': 1,
                     'asset_address': self.assets[1].address,
                     'asset_quantity': '10'
                 },
@@ -147,6 +149,7 @@ class ControllerTests(unittest.TestCase):
                     'address': self.addresses[0].address,
                     'script': self.addresses[0].script_hex,
                     'amount': '0.00000080',
+                    'confirmations': 2,
                     'asset_address': None,
                     'asset_quantity': '0'
                 }
@@ -474,12 +477,14 @@ class ControllerTests(unittest.TestCase):
 
     def setup_mocks(self, spec):
         bitcoin.rpc.Proxy.listunspent.return_value = [
-            {'outpoint': bitcoin.core.COutPoint(bytes(str(i), 'utf-8') * 32, i)}
+            {'outpoint': bitcoin.core.COutPoint(bytes(str(i), 'utf-8') * 32, i), 'confirmations': i}
             for i in range(0, len(spec))]
 
-        openassets.protocol.ColoringEngine.get_output.side_effect = lambda self, hash, n: \
-            openassets.protocol.TransactionOutput(
+        def get_output(self, hash, n):
+            return openassets.protocol.TransactionOutput(
                 spec[n][0], bitcoin.core.script.CScript(spec[n][1]), spec[n][2], spec[n][3])
+
+        openassets.protocol.ColoringEngine.get_output.side_effect = get_output
 
     def create_controller(self, format='json'):
         configuration = unittest.mock.MagicMock()

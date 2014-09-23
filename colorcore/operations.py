@@ -100,6 +100,7 @@ class Controller(object):
                 'address': Convert.script_to_base58_p2a(output.output.scriptPubKey, self.configuration.version_byte),
                 'script': bitcoin.core.b2x(output.output.scriptPubKey),
                 'amount': Convert.to_coin(output.output.nValue),
+                'confirmations': output.confirmations,
                 'asset_address':
                     None if output.output.asset_address is None
                     else Convert.asset_address_to_base58(
@@ -286,10 +287,14 @@ class Controller(object):
         cache = self.cache_factory()
         engine = openassets.protocol.ColoringEngine(client.getrawtransaction, cache)
         unspent = client.listunspent(addrs=[address] if address else None, *args)
-        result = [
-            openassets.transactions.SpendableOutput(
-            bitcoin.core.COutPoint(item['outpoint'].hash, item['outpoint'].n),
-            engine.get_output(item['outpoint'].hash, item['outpoint'].n)) for item in unspent]
+
+        result = []
+        for item in unspent:
+            output = openassets.transactions.SpendableOutput(
+                bitcoin.core.COutPoint(item['outpoint'].hash, item['outpoint'].n),
+                engine.get_output(item['outpoint'].hash, item['outpoint'].n))
+            output.confirmations = item['confirmations']
+            result.append(output)
 
         # Commit new outputs to cache
         cache.commit()
