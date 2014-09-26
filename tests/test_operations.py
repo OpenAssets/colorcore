@@ -534,3 +534,68 @@ class ControllerTests(unittest.TestCase):
             'n': index,
             'scriptPubKey': {'hex': bitcoin.core.b2x(script)}
         }
+
+
+class ConvertTests(unittest.TestCase):
+
+    def test_base58_to_script_success(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         result = target.base58_to_script('1AaaBxiLVzo1xZSFpAw3Zm9YBYAYQgQuuU')
+
+         self.assertEqual(bitcoin.core.x('76a914' + '691290451961ad74e177bf44f32d9e2fe7454ee6' + '88ac'), result)
+
+    def test_base58_to_script_invalid_version(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         self.assertRaises(
+             colorcore.routing.ControllerError,
+             target.base58_to_script,
+             '36hBrMeUfevFPZdY2iYSHVaP9jdLd9Np4R')
+
+    def test_base58_to_asset_address_success(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         result = target.base58_to_asset_address('36hBrMeUfevFPZdY2iYSHVaP9jdLd9Np4R')
+
+         self.assertEqual(bitcoin.core.x('36e0ea8e93eaa0285d641305f4c81e563aa570a2'), result)
+
+    def test_base58_to_asset_address_invalid_version(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         self.assertRaises(
+             colorcore.routing.ControllerError,
+             target.base58_to_asset_address,
+             '1AaaBxiLVzo1xZSFpAw3Zm9YBYAYQgQuuU')
+
+    def test_script_to_base58_success(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         result = target.script_to_base58(
+             bitcoin.core.x('76a914' + '691290451961ad74e177bf44f32d9e2fe7454ee6' + '88ac'))
+
+         self.assertEqual('1AaaBxiLVzo1xZSFpAw3Zm9YBYAYQgQuuU', result)
+
+    def test_script_to_base58_unknown_script(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         result = target.script_to_base58(
+             bitcoin.core.x('000000' + '691290451961ad74e177bf44f32d9e2fe7454ee6' + '88ac'))
+
+         self.assertEqual('Unknown script', result)
+
+    def test_script_to_base58_invalid_script(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         result = target.script_to_base58(
+             bitcoin.core.x('76a914' + '691290'))
+
+         self.assertEqual('Invalid script', result)
+
+    def test_asset_address_to_base58(self):
+         target = colorcore.operations.Convert(0, 5)
+
+         result = target.asset_address_to_base58(
+             bitcoin.core.x('36e0ea8e93eaa0285d641305f4c81e563aa570a2'))
+
+         self.assertEqual('36hBrMeUfevFPZdY2iYSHVaP9jdLd9Np4R', result)

@@ -36,11 +36,13 @@ import openassets.transactions
 
 
 class Controller(object):
+    """Contains all operations provided by Colorcore."""
 
     def __init__(self, configuration, cache_factory, tx_parser):
         self.configuration = configuration
         self.tx_parser = tx_parser
         self.cache_factory = cache_factory
+        self.convert = Convert(configuration.version_byte, configuration.p2sh_version_byte)
 
     def getbalance(self,
         address: "Obtain the balance of this address only, or all addresses if unspecified"=None,
@@ -57,8 +59,8 @@ class Controller(object):
         table = []
         for script, group in itertools.groupby(sorted_outputs, lambda output: output.scriptPubKey):
             script_outputs = list(group)
-            total_value = Convert.to_coin(sum([item.nValue for item in script_outputs]))
-            base58 = Convert.script_to_base58_p2a(script, self.configuration.version_byte)
+            total_value = self.convert.to_coin(sum([item.nValue for item in script_outputs]))
+            base58 = self.convert.script_to_base58(script)
 
             group_details = {
                 'address': base58,
@@ -75,8 +77,7 @@ class Controller(object):
             for asset_address, outputs in itertools.groupby(sorted_script_outputs, lambda output: output.asset_address):
                 total_quantity = sum([item.asset_quantity for item in outputs])
                 group_details['assets'].append({
-                    'asset_address':
-                        Convert.asset_address_to_base58(asset_address, self.configuration.p2sh_version_byte),
+                    'asset_address': self.convert.asset_address_to_base58(asset_address),
                     'quantity': str(total_quantity)
                 })
 
@@ -97,15 +98,13 @@ class Controller(object):
             table.append({
                 'txid': bitcoin.core.b2lx(output.out_point.hash),
                 'vout': output.out_point.n,
-                'address': Convert.script_to_base58_p2a(output.output.scriptPubKey, self.configuration.version_byte),
+                'address': self.convert.script_to_base58(output.output.scriptPubKey),
                 'script': bitcoin.core.b2x(output.output.scriptPubKey),
-                'amount': Convert.to_coin(output.output.nValue),
+                'amount': self.convert.to_coin(output.output.nValue),
                 'confirmations': output.confirmations,
                 'asset_address':
                     None if output.output.asset_address is None
-                    else Convert.asset_address_to_base58(
-                        output.output.asset_address,
-                        self.configuration.p2sh_version_byte),
+                    else self.convert.asset_address_to_base58(output.output.asset_address),
                 'asset_quantity': str(output.output.asset_quantity)
             })
 
@@ -127,8 +126,8 @@ class Controller(object):
 
         transaction = builder.transfer_bitcoin(
             colored_outputs,
-            Convert.base58_to_p2a_script(address),
-            Convert.base58_to_p2a_script(to),
+            self.convert.base58_to_script(address),
+            self.convert.base58_to_script(to),
             self._as_int(amount),
             self._get_fees(fees))
 
@@ -151,9 +150,9 @@ class Controller(object):
 
         transaction = builder.transfer_assets(
             colored_outputs,
-            Convert.base58_to_p2a_script(address),
-            Convert.base58_to_p2a_script(to),
-            Convert.base58_to_asset_address(asset),
+            self.convert.base58_to_script(address),
+            self.convert.base58_to_script(to),
+            self.convert.base58_to_asset_address(asset),
             self._as_int(amount),
             self._get_fees(fees))
 
@@ -179,9 +178,9 @@ class Controller(object):
 
         transaction = builder.issue(
             colored_outputs,
-            Convert.base58_to_p2a_script(address),
-            Convert.base58_to_p2a_script(to),
-            Convert.base58_to_p2a_script(address),
+            self.convert.base58_to_script(address),
+            self.convert.base58_to_script(to),
+            self.convert.base58_to_script(address),
             self._as_int(amount),
             bytes(metadata, encoding='utf-8'),
             self._get_fees(fees))
@@ -221,7 +220,7 @@ class Controller(object):
                     vout=[
                         builder._get_colored_output(script),
                         builder._get_marker_output([amount_issued], bytes(metadata, encoding='utf-8')),
-                        builder._get_uncolored_output(Convert.base58_to_p2a_script(forward_address), collected)
+                        builder._get_uncolored_output(self.convert.base58_to_script(forward_address), collected)
                     ]
                 )
 
@@ -230,9 +229,9 @@ class Controller(object):
 
                 transactions.append(transaction)
                 summary.append({
-                    'from': Convert.script_to_base58_p2a(script, self.configuration.version_byte),
-                    'received': Convert.to_coin(output.output.nValue) + " BTC",
-                    'collected': Convert.to_coin(collected) + " BTC",
+                    'from': self.convert.script_to_base58(script),
+                    'received': self.convert.to_coin(output.output.nValue) + " BTC",
+                    'collected': self.convert.to_coin(collected) + " BTC",
                     'sent': str(amount_issued) + " Units",
                     'transaction': bitcoin.core.b2lx(output.out_point.hash)
                 })
@@ -319,27 +318,36 @@ class Controller(object):
 
 
 class Convert(object):
+    """Provides conversion helpers."""
+
+    def __init__(self, p2a_version_byte, p2sh_version_byte):
+        self.p2a_version_byte = p2a_version_byte
+        self.p2sh_version_byte = p2sh_version_byte
 
     @staticmethod
     def to_coin(satoshis):
         return '{0:.8f}'.format(decimal.Decimal(satoshis) / decimal.Decimal(bitcoin.core.COIN))
 
-    @staticmethod
-    def base58_to_p2a_script(base58_address):
-        address_bytes = bitcoin.base58.CBase58Data(base58_address).to_bytes()
+    def base58_to_script(self, base58_address):
+        address = bitcoin.base58.CBase58Data(base58_address)
+        if address.nVersion != self.p2a_version_byte:
+            raise colorcore.routing.ControllerError("Invalid version byte.")
+
+        address_bytes = address.to_bytes()
         return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address_bytes) \
             + bytes([0x88, 0xac])
 
-    @staticmethod
-    def base58_to_asset_address(base58_address):
-        return bitcoin.base58.CBase58Data(base58_address).to_bytes()
+    def base58_to_asset_address(self, base58_address):
+        address = bitcoin.base58.CBase58Data(base58_address)
+        if address.nVersion != self.p2sh_version_byte:
+            raise colorcore.routing.ControllerError("Invalid version byte.")
 
-    @staticmethod
-    def asset_address_to_base58(asset_address, p2sh_version_byte):
-        return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, p2sh_version_byte))
+        return address.to_bytes()
 
-    @staticmethod
-    def script_to_base58_p2a(script, version_byte):
+    def asset_address_to_base58(self, asset_address):
+        return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, self.p2sh_version_byte))
+
+    def script_to_base58(self, script):
         script_object = bitcoin.core.CScript(script)
         try:
             opcodes = list(script_object.raw_iter())
@@ -349,6 +357,6 @@ class Convert(object):
         if len(opcodes) == 5 and opcodes[0][0] == 0x76 and opcodes[1][0] == 0xA9 \
             and opcodes[3][0] == 0x88 and opcodes[4][0] == 0xac:
             opcode, data, sop_idx = opcodes[2]
-            return str(bitcoin.base58.CBase58Data.from_bytes(data, version_byte))
+            return str(bitcoin.base58.CBase58Data.from_bytes(data, self.p2a_version_byte))
 
         return "Unknown script"
