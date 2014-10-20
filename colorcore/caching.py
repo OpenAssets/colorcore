@@ -103,8 +103,8 @@ class SqliteCache(openassets.protocol.OutputCache):
                 (
                     transaction_hash,
                     output_index,
-                    output.nValue,
-                    bytes(output.scriptPubKey),
+                    output.value,
+                    bytes(output.script),
                     output.asset_address,
                     output.asset_quantity,
                     output.output_type.value

@@ -108,9 +108,9 @@ class SqliteCacheTests(unittest.TestCase):
 
         self.assertIsNone(result)
 
-    def assert_output(self, output, nValue, scriptPubKey, asset_address, asset_quantity, output_type):
-        self.assertEqual(nValue, output.nValue)
-        self.assertEqual(scriptPubKey, bytes(output.scriptPubKey))
+    def assert_output(self, output, value, script, asset_address, asset_quantity, output_type):
+        self.assertEqual(value, output.value)
+        self.assertEqual(script, bytes(output.script))
         self.assertEqual(asset_address, output.asset_address)
         self.assertEqual(asset_quantity, output.asset_quantity)
         self.assertEqual(output_type, output.output_type)

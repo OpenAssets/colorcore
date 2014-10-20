@@ -58,12 +58,12 @@ class Controller(object):
             client, address, self._as_int(minconf), self._as_int(maxconf))
         colored_outputs = [output.output for output in unspent_outputs]
 
-        sorted_outputs = sorted(colored_outputs, key=lambda output: output.scriptPubKey)
+        sorted_outputs = sorted(colored_outputs, key=lambda output: output.script)
 
         table = []
-        for script, group in itertools.groupby(sorted_outputs, lambda output: output.scriptPubKey):
+        for script, group in itertools.groupby(sorted_outputs, lambda output: output.script):
             script_outputs = list(group)
-            total_value = self.convert.to_coin(sum([item.nValue for item in script_outputs]))
+            total_value = self.convert.to_coin(sum([item.value for item in script_outputs]))
             base58 = self.convert.script_to_base58(script)
 
             group_details = {
@@ -104,9 +104,9 @@ class Controller(object):
             table.append({
                 'txid': bitcoin.core.b2lx(output.out_point.hash),
                 'vout': output.out_point.n,
-                'address': self.convert.script_to_base58(output.output.scriptPubKey),
-                'script': bitcoin.core.b2x(output.output.scriptPubKey),
-                'amount': self.convert.to_coin(output.output.nValue),
+                'address': self.convert.script_to_base58(output.output.script),
+                'script': bitcoin.core.b2x(output.output.script),
+                'amount': self.convert.to_coin(output.output.value),
                 'confirmations': output.confirmations,
                 'asset_address':
                     None if output.output.asset_address is None
@@ -223,10 +223,10 @@ class Controller(object):
             incoming_transaction = client.getrawtransaction(output.out_point.hash)
             script = bytes(incoming_transaction.vout[0].scriptPubKey)
             collected, amount_issued, change = self._calculate_distribution(
-                output.output.nValue, decimal_price, self._get_fees(fees), self.configuration.dust_limit)
+                output.output.value, decimal_price, self._get_fees(fees), self.configuration.dust_limit)
             if amount_issued > 0:
                 transaction = bitcoin.core.CTransaction(
-                    vin=[bitcoin.core.CTxIn(output.out_point, output.output.scriptPubKey)],
+                    vin=[bitcoin.core.CTxIn(output.out_point, output.output.script)],
                     vout=[
                         builder._get_colored_output(script),
                         builder._get_marker_output([amount_issued], bytes(metadata, encoding='utf-8')),
@@ -240,7 +240,7 @@ class Controller(object):
                 transactions.append(transaction)
                 summary.append({
                     'from': self.convert.script_to_base58(script),
-                    'received': self.convert.to_coin(output.output.nValue) + " BTC",
+                    'received': self.convert.to_coin(output.output.value) + " BTC",
                     'collected': self.convert.to_coin(collected) + " BTC",
                     'sent': str(amount_issued) + " Units",
                     'transaction': bitcoin.core.b2lx(output.out_point.hash)
