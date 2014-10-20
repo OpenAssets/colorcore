@@ -44,6 +44,11 @@ class Program(object):
     @staticmethod
     def execute():
         configuration = Configuration()
+
+        class NetworkParams(bitcoin.core.CoreChainParams):
+            BASE58_PREFIXES = {'PUBKEY_ADDR':configuration.version_byte, 'SCRIPT_ADDR':configuration.p2sh_version_byte}
+
+        bitcoin.params = NetworkParams()
         router = Router(
             colorcore.operations.Controller,
             sys.stdout,

@@ -225,17 +225,17 @@ class Controller(object):
             collected, amount_issued, change = self._calculate_distribution(
                 output.output.value, decimal_price, self._get_fees(fees), self.configuration.dust_limit)
             if amount_issued > 0:
-                transaction = bitcoin.core.CTransaction(
-                    vin=[bitcoin.core.CTxIn(output.out_point, output.output.script)],
-                    vout=[
-                        builder._get_colored_output(script),
-                        builder._get_marker_output([amount_issued], bytes(metadata, encoding='utf-8')),
-                        builder._get_uncolored_output(self.convert.base58_to_script(forward_address), collected)
-                    ]
-                )
+                inputs = [bitcoin.core.CTxIn(output.out_point, output.output.script)]
+                outputs = [
+                    builder._get_colored_output(script),
+                    builder._get_marker_output([amount_issued], bytes(metadata, encoding='utf-8')),
+                    builder._get_uncolored_output(self.convert.base58_to_script(forward_address), collected)
+                ]
 
                 if change > 0:
-                    transaction.vout.append(builder._get_uncolored_output(script, change))
+                    outputs.append(builder._get_uncolored_output(script, change))
+
+                transaction = bitcoin.core.CTransaction(vin=inputs, vout=outputs)
 
                 transactions.append(transaction)
                 summary.append({
