@@ -25,11 +25,13 @@
 import bitcoin.core.script
 import colorcore.caching
 import openassets.protocol
+import tests.helpers
 import unittest
 
 
 class SqliteCacheTests(unittest.TestCase):
-    def test_colored_output(self):
+    @tests.helpers.async_test
+    def test_colored_output(self, loop):
         target = colorcore.caching.SqliteCache(':memory:')
 
         output = openassets.protocol.TransactionOutput(
@@ -40,12 +42,13 @@ class SqliteCacheTests(unittest.TestCase):
             openassets.protocol.OutputType.issuance
         )
 
-        target.put(b'transaction', 5, output)
-        result = target.get(b'transaction', 5)
+        yield from target.put(b'transaction', 5, output)
+        result = yield from target.get(b'transaction', 5)
 
         self.assert_output(result, 150, b'abcd', b'1234', 75, openassets.protocol.OutputType.issuance)
 
-    def test_commit(self):
+    @tests.helpers.async_test
+    def test_commit(self, loop):
         target = colorcore.caching.SqliteCache(':memory:')
 
         output = openassets.protocol.TransactionOutput(
@@ -56,13 +59,14 @@ class SqliteCacheTests(unittest.TestCase):
             openassets.protocol.OutputType.issuance
         )
 
-        target.put(b'transaction', 5, output)
-        target.commit()
-        result = target.get(b'transaction', 5)
+        yield from target.put(b'transaction', 5, output)
+        yield from target.commit()
+        result = yield from target.get(b'transaction', 5)
 
         self.assert_output(result, 150, b'abcd', b'1234', 75, openassets.protocol.OutputType.issuance)
 
-    def test_uncolored_output(self):
+    @tests.helpers.async_test
+    def test_uncolored_output(self, loop):
         target = colorcore.caching.SqliteCache(':memory:')
 
         output = openassets.protocol.TransactionOutput(
@@ -73,12 +77,13 @@ class SqliteCacheTests(unittest.TestCase):
             openassets.protocol.OutputType.uncolored
         )
 
-        target.put(b'transaction', 5, output)
-        result = target.get(b'transaction', 5)
+        yield from target.put(b'transaction', 5, output)
+        result = yield from target.get(b'transaction', 5)
 
         self.assert_output(result, 150, b'abcd', None, 0, openassets.protocol.OutputType.uncolored)
 
-    def test_max_values(self):
+    @tests.helpers.async_test
+    def test_max_values(self, loop):
         target = colorcore.caching.SqliteCache(':memory:')
 
         output = openassets.protocol.TransactionOutput(
@@ -89,16 +94,17 @@ class SqliteCacheTests(unittest.TestCase):
             openassets.protocol.OutputType.issuance
         )
 
-        target.put(b'transaction', 5, output)
-        result = target.get(b'transaction', 5)
+        yield from target.put(b'transaction', 5, output)
+        result = yield from target.get(b'transaction', 5)
 
         self.assert_output(
             result, 2 ** 63 - 1, b'a' * 16384, b'1234', 2 ** 63 - 1, openassets.protocol.OutputType.issuance)
 
-    def test_cache_miss(self):
+    @tests.helpers.async_test
+    def test_cache_miss(self, loop):
         target = colorcore.caching.SqliteCache(':memory:')
 
-        result = target.get(b'transaction', 5)
+        result = yield from target.get(b'transaction', 5)
 
         self.assertIsNone(result)
 

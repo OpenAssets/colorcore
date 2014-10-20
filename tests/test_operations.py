@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import asyncio
 import bitcoin.core
 import bitcoin.core.script
 import bitcoin.rpc
@@ -30,6 +31,7 @@ import colorcore.operations
 import colorcore.routing
 import json
 import openassets.protocol
+import tests.helpers as helpers
 import unittest
 import unittest.mock
 
@@ -84,7 +86,8 @@ class ControllerTests(unittest.TestCase):
 
     # getbalance
 
-    def test_getbalance_success(self, *args):
+    @helpers.async_test
+    def test_getbalance_success(self, *args, loop):
         self.setup_mocks([
             (20, self.addresses[0].script, self.assets[0].binary, 30),
             (50, self.addresses[1].script, self.assets[0].binary, 10),
@@ -93,7 +96,7 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        result = target.getbalance()
+        result = yield from target.getbalance()
 
         self.assert_response([
                 {
@@ -111,7 +114,8 @@ class ControllerTests(unittest.TestCase):
 
     # listunspent
 
-    def test_listunspent_success(self, *args):
+    @helpers.async_test
+    def test_listunspent_success(self, *args, loop):
         self.setup_mocks([
             (20, self.addresses[0].script, self.assets[0].binary, 30),
             (50, self.addresses[1].script, self.assets[1].binary, 10),
@@ -120,7 +124,7 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        result = target.listunspent()
+        result = yield from target.listunspent()
 
         self.assert_response([
                 {
@@ -158,8 +162,9 @@ class ControllerTests(unittest.TestCase):
 
     # sendbitcoin
 
-    def test_sendbitcoin_success(self, *args):
-        result = self._setup_sendbitcoin_test('unsigned', 'json')
+    @helpers.async_test
+    def test_sendbitcoin_success(self, *args, loop):
+        result = yield from self._setup_sendbitcoin_test('unsigned', 'json')
 
         self.assert_response({
             'version': 1,
@@ -178,34 +183,39 @@ class ControllerTests(unittest.TestCase):
         result)
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
-    def test_sendbitcoin_signed_success(self, signrawtransaction_mock, *args):
+    @helpers.async_test
+    def test_sendbitcoin_signed_success(self, signrawtransaction_mock, *args, loop):
         signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': True, 'tx': transaction}
-        result = self._setup_sendbitcoin_test('signed', 'json')
+        result = yield from self._setup_sendbitcoin_test('signed', 'json')
 
         self.assertEqual(1, signrawtransaction_mock.call_count)
         self.assertEqual(2, len(result['vin']))
         self.assertEqual(2, len(result['vout']))
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
-    def test_sendbitcoin_signed_invalid_signature(self, signrawtransaction_mock, *args):
+    @helpers.async_test
+    def test_sendbitcoin_signed_invalid_signature(self, signrawtransaction_mock, *args, loop):
         signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': False}
 
-        self.assertRaises(colorcore.routing.ControllerError, self._setup_sendbitcoin_test, 'signed', 'json')
+        yield from helpers.assert_coroutine_raises(
+            self, colorcore.routing.ControllerError, self._setup_sendbitcoin_test, 'signed', 'json')
         self.assertEqual(1, signrawtransaction_mock.call_count)
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
     @unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction', autospec=True)
-    def test_sendbitcoin_broadcast(self, sendrawtransaction_mock, signrawtransaction_mock, *args):
+    @helpers.async_test
+    def test_sendbitcoin_broadcast(self, sendrawtransaction_mock, signrawtransaction_mock, *args, loop):
         signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': True, 'tx': transaction}
         sendrawtransaction_mock.return_value = b'transaction ID'
-        result = self._setup_sendbitcoin_test('broadcast', 'json')
+        result = yield from self._setup_sendbitcoin_test('broadcast', 'json')
 
         self.assertEqual(1, signrawtransaction_mock.call_count)
         self.assertEqual(1, sendrawtransaction_mock.call_count)
         self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
 
-    def test_sendbitcoin_raw_unsigned(self, *args):
-        result = self._setup_sendbitcoin_test('unsigned', 'raw')
+    @helpers.async_test
+    def test_sendbitcoin_raw_unsigned(self, *args, loop):
+        result = yield from self._setup_sendbitcoin_test('unsigned', 'raw')
 
         self.assertEqual(
             True,
@@ -216,16 +226,18 @@ class ControllerTests(unittest.TestCase):
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.signrawtransaction', autospec=True)
     @unittest.mock.patch('bitcoin.rpc.Proxy.sendrawtransaction', autospec=True)
-    def test_sendbitcoin_raw_broadcast(self, sendrawtransaction_mock, signrawtransaction_mock, *args):
+    @helpers.async_test
+    def test_sendbitcoin_raw_broadcast(self, sendrawtransaction_mock, signrawtransaction_mock, *args, loop):
         signrawtransaction_mock.side_effect = lambda self, transaction: {'complete': True, 'tx': transaction}
         sendrawtransaction_mock.return_value = b'transaction ID'
-        result = self._setup_sendbitcoin_test('broadcast', 'raw')
+        result = yield from self._setup_sendbitcoin_test('broadcast', 'raw')
 
         self.assertEqual(1, signrawtransaction_mock.call_count)
         self.assertEqual(1, sendrawtransaction_mock.call_count)
         self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
 
-    def test_sendbitcoin_default_fees(self, *args):
+    @helpers.async_test
+    def test_sendbitcoin_default_fees(self, *args, loop):
         self.setup_mocks([
             (80, self.addresses[0].script, None, 0),
             (50, self.addresses[1].script, None, 0),
@@ -234,7 +246,7 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        result = target.sendbitcoin(
+        result = yield from target.sendbitcoin(
             address=self.addresses[0].address,
             amount='100',
             to=self.addresses[2].address,
@@ -256,7 +268,8 @@ class ControllerTests(unittest.TestCase):
         },
         result)
 
-    def test_invalid_fees(self, *args):
+    @helpers.async_test
+    def test_invalid_fees(self, *args, loop):
         self.setup_mocks([
             (80, self.addresses[0].script, None, 0),
             (50, self.addresses[1].script, None, 0),
@@ -265,7 +278,8 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        self.assertRaises(
+        yield from helpers.assert_coroutine_raises(
+            self,
             colorcore.routing.ControllerError,
             target.sendbitcoin,
             address=self.addresses[0].address,
@@ -274,6 +288,7 @@ class ControllerTests(unittest.TestCase):
             fees='10a',
             mode='unsigned')
 
+    @asyncio.coroutine
     def _setup_sendbitcoin_test(self, mode, format):
         self.setup_mocks([
             (20, self.addresses[0].script, self.assets[0].binary, 30),
@@ -284,16 +299,19 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller(format)
 
-        return target.sendbitcoin(
+        result = yield from target.sendbitcoin(
             address=self.addresses[0].address,
             amount='100',
             to=self.addresses[2].address,
             fees='10',
             mode=mode)
 
+        return result
+
     # sendasset
 
-    def test_sendasset_success(self, *args):
+    @helpers.async_test
+    def test_sendasset_success(self, *args, loop):
         self.setup_mocks([
             (10, self.addresses[0].script, self.assets[0].binary, 50),
             (50, self.addresses[1].script, None, 0),
@@ -303,7 +321,7 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        result = target.sendasset(
+        result = yield from target.sendasset(
             address=self.addresses[0].address,
             asset=self.assets[0].address,
             amount='100',
@@ -334,7 +352,8 @@ class ControllerTests(unittest.TestCase):
 
     # issueasset
 
-    def test_issueasset_success(self, *args):
+    @helpers.async_test
+    def test_issueasset_success(self, *args, loop):
         self.setup_mocks([
             (5, self.addresses[0].script, None, 0),
             (50, self.addresses[1].script, None, 0),
@@ -343,7 +362,7 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        result = target.issueasset(
+        result = yield from target.issueasset(
             address=self.addresses[0].address,
             amount='100',
             to=self.addresses[2].address,
@@ -372,7 +391,8 @@ class ControllerTests(unittest.TestCase):
     # distribute
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.getrawtransaction', autospec=True)
-    def test_distribute_success(self, getrawtransaction_mock, *args):
+    @helpers.async_test
+    def test_distribute_success(self, getrawtransaction_mock, *args, loop):
         self.setup_mocks([
             (36 + 10 + 15, self.addresses[0].script, None, 0),
             (46 + 10 + 15, self.addresses[0].script, None, 0)
@@ -382,7 +402,7 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        result = target.distribute(
+        result = yield from target.distribute(
             address=self.addresses[0].address,
             forward_address=self.addresses[2].address,
             price='20',
@@ -420,7 +440,8 @@ class ControllerTests(unittest.TestCase):
         result)
 
     @unittest.mock.patch('bitcoin.rpc.Proxy.getrawtransaction', autospec=True)
-    def test_distribute_preview(self, getrawtransaction_mock, *args):
+    @helpers.async_test
+    def test_distribute_preview(self, getrawtransaction_mock, *args, loop):
         self.setup_mocks([
             (36 + 10 + 15, self.addresses[0].script, None, 0),
             (46 + 10 + 15, self.addresses[0].script, None, 0)
@@ -430,7 +451,7 @@ class ControllerTests(unittest.TestCase):
 
         target = self.create_controller()
 
-        result = target.distribute(
+        result = yield from target.distribute(
             address=self.addresses[0].address,
             forward_address=self.addresses[2].address,
             price='20',
@@ -453,10 +474,12 @@ class ControllerTests(unittest.TestCase):
         }],
         result)
 
-    def test_distribute_invalid_price(self, *args):
+    @helpers.async_test
+    def test_distribute_invalid_price(self, *args, loop):
         target = self.create_controller()
 
-        self.assertRaises(
+        yield from helpers.assert_coroutine_raises(
+            self,
             colorcore.routing.ControllerError,
             target.distribute,
             address=self.addresses[0].address,
@@ -481,8 +504,10 @@ class ControllerTests(unittest.TestCase):
             for i in range(0, len(spec))]
 
         def get_output(self, hash, n):
-            return openassets.protocol.TransactionOutput(
-                spec[n][0], bitcoin.core.script.CScript(spec[n][1]), spec[n][2], spec[n][3])
+            result = asyncio.Future()
+            result.set_result(openassets.protocol.TransactionOutput(
+                spec[n][0], bitcoin.core.script.CScript(spec[n][1]), spec[n][2], spec[n][3]))
+            return result
 
         openassets.protocol.ColoringEngine.get_output.side_effect = get_output
 
@@ -495,13 +520,15 @@ class ControllerTests(unittest.TestCase):
         configuration.default_fees = 15
 
         class MockCache(openassets.protocol.OutputCache):
+            @asyncio.coroutine
             def commit(self):
                 pass
 
         return colorcore.operations.Controller(
             configuration,
             MockCache,
-            colorcore.routing.Router.get_transaction_formatter(format))
+            colorcore.routing.Router.get_transaction_formatter(format),
+            None)
 
     def assert_response(self, expected, actual):
         expected_json = json.dumps(expected, indent=4, sort_keys=False)

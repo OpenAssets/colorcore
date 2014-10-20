@@ -23,16 +23,17 @@
 # SOFTWARE.
 
 import argparse
+import aiohttp
+import aiohttp.server
+import asyncio
 import bitcoin.core
 import configparser
 import colorcore.caching
 import colorcore.operations
-import http.server
 import inspect
 import json
 import openassets.transactions
 import re
-import socketserver
 import sys
 import urllib.parse
 
@@ -48,6 +49,7 @@ class Program(object):
             sys.stdout,
             lambda: colorcore.caching.SqliteCache(configuration.cache_path),
             configuration,
+            asyncio.new_event_loop(),
             "Colorcore: The Open Assets client for colored coins")
         router.parse(sys.argv[1:])
 
@@ -74,63 +76,78 @@ class Configuration():
             self.rpc_enabled = False
 
 
-class RpcServer(http.server.BaseHTTPRequestHandler):
+class RpcServer(aiohttp.server.ServerHttpProtocol):
     """The HTTP handler used to respond to JSON/RPC requests."""
 
-    def do_GET(self):
-        self.error(101, 'Requests must be POST')
+    def __init__(self, controller, configuration, event_loop, cache_factory, **kwargs):
+        super(RpcServer, self).__init__(**kwargs)
+        self.controller = controller
+        self.configuration = configuration
+        self.cache_factory = cache_factory
+        self.event_loop = event_loop
 
-    def do_POST(self):
+    @asyncio.coroutine
+    def handle_request(self, message, payload):
         try:
-            url = re.search('^/(?P<operation>\w+)$', self.path)
+            url = re.search('^/(?P<operation>\w+)$', message.path)
             if url is None:
-                return self.error(102, 'The request path is invalid')
+                yield from self.error(102, 'The request path is invalid')
+                return
 
             # Get the operation function corresponding to the URL path
             operation_name = url.group('operation')
-            operation = getattr(self.server.controller, operation_name, None)
+            operation = getattr(self.controller, operation_name, None)
 
             if operation_name == '' or operation_name[0] == '_' or operation is None:
-                return self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
+                yield from self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
+                return
 
-            length = int(self.headers.get('content-length', '0'))
-
-            post_vars = {}
-            for key, value in urllib.parse.parse_qs(self.rfile.read(length), keep_blank_values=1).items():
-                post_vars[str(key, 'utf-8')] = str(value[0], 'utf-8')
+            # Read the POST body
+            post_data = yield from payload.read()
+            post_vars = urllib.parse.parse_qs(post_data)
 
             tx_parser = Router.get_transaction_formatter(post_vars.pop('txformat', 'json'))
 
-            controller = self.server.controller(self.server.configuration, self.server.cache_factory, tx_parser)
+            controller = self.controller(self.configuration, self.cache_factory, tx_parser, self.event_loop)
 
             try:
-                result = operation(controller, **post_vars)
+                result = yield from operation(controller, **post_vars)
             except TypeError:
-                return self.error(104, 'Invalid parameters provided')
+                yield from self.error(104, 'Invalid parameters provided')
+                return
             except ControllerError as error:
-                return self.error(201, str(error))
+                yield from self.error(201, str(error))
+                return
             except openassets.transactions.TransactionBuilderError as error:
-                return self.error(301, type(error).__name__)
+                yield from self.error(301, type(error).__name__)
+                return
 
-            self.set_headers(200)
-            self.json_response(result)
+            response = self.create_response(200, message)
+            yield from self.json_response(response, result)
+
+            if response.keep_alive():
+                self.keep_alive(True)
+
         except Exception as exception:
-            self.set_headers(500)
-            self.json_response({'error': {'code': 0, 'message': 'Internal server error', 'details': str(exception)}})
+            response = self.create_response(500, message)
+            yield from self.json_response(
+                response, {'error': {'code': 0, 'message': 'Internal server error', 'details': str(exception)}})
 
-    def set_headers(self, code):
-        self.server_version = 'Colorcore/' + colorcore.__version__
-        self.sys_version = ''
-        self.send_response(code)
-        self.send_header('Content-Type', 'text/json')
-        self.end_headers()
+    def create_response(self, status, message):
+        response = aiohttp.Response(self.writer, status, http_version=message.version)
+        response.add_header('Content-Type', 'text/json')
+        response.send_headers()
+        return response
 
+    @asyncio.coroutine
     def error(self, code, message):
-        self.set_headers(400)
-        self.json_response({'error': {'code': code, 'message': message}})
+        response = self.create_response(400, message)
+        yield from self.json_response(response, {'error': {'code': code, 'message': message}})
 
-    def json_response(self, data):
-        self.wfile.write(bytes(json.dumps(data, indent=4, separators=(',', ': ')), 'utf-8'))
+    @asyncio.coroutine
+    def json_response(self, response, data):
+        response.write(bytes(json.dumps(data, indent=4, separators=(',', ': ')), 'utf-8'))
+        yield from response.write_eof()
 
 
 class Router:
@@ -140,9 +157,10 @@ class Router:
         ('txformat', "Format of transactions if a transaction is returned ('raw' or 'json')", 'json')
     ]
 
-    def __init__(self, controller, output, cache_factory, configuration, description=None):
+    def __init__(self, controller, output, cache_factory, configuration, event_loop, description=None):
         self.controller = controller
         self.configuration = configuration
+        self.event_loop = event_loop
         self.output = output
         self.cache_factory = cache_factory
         self._parser = argparse.ArgumentParser(description=description)
@@ -180,21 +198,26 @@ class Router:
     def _execute_operation(self, configuration, function):
         def decorator(*args, txformat, **kwargs):
             # Instantiate the controller
-            controller = self.controller(configuration, self.cache_factory, self.get_transaction_formatter(txformat))
+            controller = self.controller(
+                configuration, self.cache_factory, self.get_transaction_formatter(txformat), self.event_loop)
 
-            try:
-                # Execute the operation on the controller
-                result = function(controller, *args, **kwargs)
+            @asyncio.coroutine
+            def coroutine_wrapper():
+                try:
+                    # Execute the operation on the controller
+                    result = yield from function(controller, *args, **kwargs)
 
-                # Write the output of the operation onto the output stream
-                self.output.write(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False) + '\n')
+                    # Write the output of the operation onto the output stream
+                    self.output.write(json.dumps(result, indent=4, separators=(',', ': '), sort_keys=False) + '\n')
 
-            except ControllerError as error:
-                # The controller raised a known error
-                self.output.write("Error: {}\n".format(str(error)))
-            except openassets.transactions.TransactionBuilderError as error:
-                # A transaction could not be built
-                self.output.write("Error: {}\n".format(type(error).__name__))
+                except ControllerError as error:
+                    # The controller raised a known error
+                    self.output.write("Error: {}\n".format(str(error)))
+                except openassets.transactions.TransactionBuilderError as error:
+                    # A transaction could not be built
+                    self.output.write("Error: {}\n".format(type(error).__name__))
+
+            self.event_loop.run_until_complete(coroutine_wrapper())
 
         return decorator
 
@@ -250,18 +273,14 @@ class Router:
             self.output.write("Error: RPC must be enabled in the configuration.\n")
             return
 
-        class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
-            """The multi-threaded HTTP server."""
-            daemon_threads = True
-            allow_reuse_address = True
+        def create_server():
+            return RpcServer(
+                self.controller, self.configuration, self.cache_factory, self.event_loop,
+                keep_alive=60, debug=True, allowed_methods=('POST',))
 
+        root_future = self.event_loop.create_server(create_server, '', self.configuration.rpc_port)
+        self.event_loop.run_until_complete(root_future)
         self.output.write("Starting RPC server on port {port}...\n".format(port=self.configuration.rpc_port))
-
-        httpd = ThreadedHTTPServer(('', self.configuration.rpc_port), RpcServer)
-        httpd.controller = self.controller
-        httpd.configuration = self.configuration
-        httpd.cache_factory = self.cache_factory
-        httpd.serve_forever()
 
     def parse(self, args):
         """

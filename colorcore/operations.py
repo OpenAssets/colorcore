@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import asyncio
 import bitcoin.base58
 import bitcoin.core
 import bitcoin.core.serialize
@@ -38,12 +39,14 @@ import openassets.transactions
 class Controller(object):
     """Contains all operations provided by Colorcore."""
 
-    def __init__(self, configuration, cache_factory, tx_parser):
+    def __init__(self, configuration, cache_factory, tx_parser, event_loop):
         self.configuration = configuration
         self.tx_parser = tx_parser
         self.cache_factory = cache_factory
+        self.event_loop = event_loop
         self.convert = Convert(configuration.version_byte, configuration.p2sh_version_byte)
 
+    @asyncio.coroutine
     def getbalance(self,
         address: "Obtain the balance of this address only, or all addresses if unspecified"=None,
         minconf: "The minimum number of confirmations (inclusive)"='1',
@@ -51,8 +54,9 @@ class Controller(object):
     ):
         """Obtains the balance of the wallet or an address."""
         client = self._create_client()
-        colored_outputs = [output.output for output in
-            self._get_unspent_outputs(client, address, self._as_int(minconf), self._as_int(maxconf))]
+        unspent_outputs = yield from self._get_unspent_outputs(
+            client, address, self._as_int(minconf), self._as_int(maxconf))
+        colored_outputs = [output.output for output in unspent_outputs]
 
         sorted_outputs = sorted(colored_outputs, key=lambda output: output.scriptPubKey)
 
@@ -83,6 +87,7 @@ class Controller(object):
 
         return table
 
+    @asyncio.coroutine
     def listunspent(self,
         address: "Obtain the balance of this address only, or all addresses if unspecified"=None,
         minconf: "The minimum number of confirmations (inclusive)"='1',
@@ -91,7 +96,8 @@ class Controller(object):
         """Returns an array of unspent transaction outputs augmented with the asset address and quantity of
         each output."""
         client = self._create_client()
-        unspent_outputs = self._get_unspent_outputs(client, address, self._as_int(minconf), self._as_int(maxconf))
+        unspent_outputs = yield from self._get_unspent_outputs(
+            client, address, self._as_int(minconf), self._as_int(maxconf))
 
         table = []
         for output in unspent_outputs:
@@ -110,6 +116,7 @@ class Controller(object):
 
         return table
 
+    @asyncio.coroutine
     def sendbitcoin(self,
         address: "The address to send the bitcoins from",
         amount: "The amount of satoshis to send",
@@ -122,7 +129,7 @@ class Controller(object):
         """Creates a transaction for sending bitcoins from an address to another."""
         client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(client, address)
 
         transaction = builder.transfer_bitcoin(
             colored_outputs,
@@ -133,6 +140,7 @@ class Controller(object):
 
         return self.tx_parser(self._process_transaction(client, transaction, mode))
 
+    @asyncio.coroutine
     def sendasset(self,
         address: "The address to send the asset from",
         asset: "The asset address identifying the asset to send",
@@ -146,7 +154,7 @@ class Controller(object):
         """Creates a transaction for sending an asset from an address to another."""
         client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(client, address)
 
         transaction = builder.transfer_assets(
             colored_outputs,
@@ -158,6 +166,7 @@ class Controller(object):
 
         return self.tx_parser(self._process_transaction(client, transaction, mode))
 
+    @asyncio.coroutine
     def issueasset(self,
         address: "The address to issue the asset from",
         amount: "The amount of units to send",
@@ -171,7 +180,7 @@ class Controller(object):
         """Creates a transaction for issuing an asset."""
         client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(client, address)
 
         if to is None:
             to = address
@@ -187,6 +196,7 @@ class Controller(object):
 
         return self.tx_parser(self._process_transaction(client, transaction, mode))
 
+    @asyncio.coroutine
     def distribute(self,
         address: "The address to distribute the asset from",
         forward_address: "The address where to forward the collected bitcoin funds",
@@ -205,7 +215,7 @@ class Controller(object):
         decimal_price = self._as_decimal(price)
         client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(client, address)
 
         transactions = []
         summary = []
@@ -282,21 +292,22 @@ class Controller(object):
         else:
             return self._as_int(value)
 
+    @asyncio.coroutine
     def _get_unspent_outputs(self, client, address, *args):
         cache = self.cache_factory()
-        engine = openassets.protocol.ColoringEngine(client.getrawtransaction, cache)
+        engine = openassets.protocol.ColoringEngine(asyncio.coroutine(client.getrawtransaction), cache, self.event_loop)
         unspent = client.listunspent(addrs=[address] if address else None, *args)
 
         result = []
         for item in unspent:
+            output_result = yield from engine.get_output(item['outpoint'].hash, item['outpoint'].n)
             output = openassets.transactions.SpendableOutput(
-                bitcoin.core.COutPoint(item['outpoint'].hash, item['outpoint'].n),
-                engine.get_output(item['outpoint'].hash, item['outpoint'].n))
+                bitcoin.core.COutPoint(item['outpoint'].hash, item['outpoint'].n), output_result)
             output.confirmations = item['confirmations']
             result.append(output)
 
         # Commit new outputs to cache
-        cache.commit()
+        yield from cache.commit()
         return result
 
     @staticmethod

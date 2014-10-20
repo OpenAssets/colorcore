@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import asyncio
 import bitcoin.core.script
 import contextlib
 import openassets.protocol
@@ -52,6 +53,7 @@ class SqliteCache(openassets.protocol.OutputCache):
                   PRIMARY KEY (TransactionHash, OutputIndex))
             """)
 
+    @asyncio.coroutine
     def get(self, transaction_hash, output_index):
         """
         Returns a cached output.
@@ -83,6 +85,7 @@ class SqliteCache(openassets.protocol.OutputCache):
                     openassets.protocol.OutputType(result[4])
                 )
 
+    @asyncio.coroutine
     def put(self, transaction_hash, output_index, output):
         """
         Saves an output in cache.
@@ -107,6 +110,7 @@ class SqliteCache(openassets.protocol.OutputCache):
                     output.output_type.value
                 ))
 
+    @asyncio.coroutine
     def commit(self):
         """
         Commits all changes to the cache database.
