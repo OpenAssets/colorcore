@@ -15,6 +15,7 @@ The following items are required for using Colorcore:
 * `Python 3.4 <https://www.python.org/downloads/>`_
 * The `openassets <https://github.com/openassets/openassets>`_ package
 * The `python-bitcoinlib <https://github.com/petertodd/python-bitcoinlib>`_ package
+* The `aiohttp <https://github.com/KeepSafe/aiohttp>`_ package
 * An operational Bitcoin Core wallet with JSON/RPC enabled and full transaction index
 
 Installation
