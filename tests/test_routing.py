@@ -64,6 +64,11 @@ class RouterTests(unittest.TestCase):
 
     def test_parse_server(self):
         router, event_loop_mock = self.create_router()
+        run_forever_mock_value = asyncio.Future(loop=event_loop_mock)
+        run_forever_mock_value.set_result(None)
+        event_loop_mock.run_forever = unittest.mock.Mock(
+            spec=event_loop_mock.create_server, return_value=run_forever_mock_value)
+
         self.configuration.rpc_enabled = True
         self.configuration.rpc_port = 8080
 

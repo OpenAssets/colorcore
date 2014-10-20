@@ -80,7 +80,7 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
     """The HTTP handler used to respond to JSON/RPC requests."""
 
     def __init__(self, controller, configuration, event_loop, cache_factory, **kwargs):
-        super(RpcServer, self).__init__(**kwargs)
+        super(RpcServer, self).__init__(loop=event_loop, **kwargs)
         self.controller = controller
         self.configuration = configuration
         self.cache_factory = cache_factory
@@ -91,7 +91,7 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
         try:
             url = re.search('^/(?P<operation>\w+)$', message.path)
             if url is None:
-                yield from self.error(102, 'The request path is invalid')
+                yield from self.error(102, 'The request path is invalid', message)
                 return
 
             # Get the operation function corresponding to the URL path
@@ -99,7 +99,7 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
             operation = getattr(self.controller, operation_name, None)
 
             if operation_name == '' or operation_name[0] == '_' or operation is None:
-                yield from self.error(103, 'The operation name {name} is invalid'.format(name=operation_name))
+                yield from self.error(103, 'The operation name {name} is invalid'.format(name=operation_name), message)
                 return
 
             # Read the POST body
@@ -113,13 +113,13 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
             try:
                 result = yield from operation(controller, **post_vars)
             except TypeError:
-                yield from self.error(104, 'Invalid parameters provided')
+                yield from self.error(104, 'Invalid parameters provided', message)
                 return
             except ControllerError as error:
-                yield from self.error(201, str(error))
+                yield from self.error(201, str(error), message)
                 return
             except openassets.transactions.TransactionBuilderError as error:
-                yield from self.error(301, type(error).__name__)
+                yield from self.error(301, type(error).__name__, message)
                 return
 
             response = self.create_response(200, message)
@@ -140,9 +140,9 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
         return response
 
     @asyncio.coroutine
-    def error(self, code, message):
+    def error(self, code, error, message):
         response = self.create_response(400, message)
-        yield from self.json_response(response, {'error': {'code': code, 'message': message}})
+        yield from self.json_response(response, {'error': {'code': code, 'message': error}})
 
     @asyncio.coroutine
     def json_response(self, response, data):
@@ -275,12 +275,14 @@ class Router:
 
         def create_server():
             return RpcServer(
-                self.controller, self.configuration, self.cache_factory, self.event_loop,
+                self.controller, self.configuration, self.event_loop, self.cache_factory,
                 keep_alive=60, debug=True, allowed_methods=('POST',))
 
+        aiohttp.HttpMessage.SERVER_SOFTWARE = 'Colorcore/{version}'.format(version=colorcore.__version__)
         root_future = self.event_loop.create_server(create_server, '', self.configuration.rpc_port)
         self.event_loop.run_until_complete(root_future)
         self.output.write("Starting RPC server on port {port}...\n".format(port=self.configuration.rpc_port))
+        self.event_loop.run_forever()
 
     def parse(self, args):
         """
