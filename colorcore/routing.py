@@ -34,6 +34,7 @@ import inspect
 import json
 import openassets.transactions
 import re
+import signal
 import sys
 import urllib.parse
 
@@ -278,10 +279,18 @@ class Router:
             self.output.write("Error: RPC must be enabled in the configuration.\n")
             return
 
+        # Instantiate the request handler
         def create_server():
             return RpcServer(
                 self.controller, self.configuration, self.event_loop, self.cache_factory,
                 keep_alive=60, debug=True, allowed_methods=('POST',))
+
+        # Exit on SIGINT or SIGTERM
+        try:
+            for signal_name in ('SIGINT', 'SIGTERM'):
+                self.event_loop.add_signal_handler(getattr(signal, signal_name), self.event_loop.stop)
+        except NotImplementedError:
+            pass
 
         aiohttp.HttpMessage.SERVER_SOFTWARE = 'Colorcore/{version}'.format(version=colorcore.__version__)
         root_future = self.event_loop.create_server(create_server, '', self.configuration.rpc_port)
