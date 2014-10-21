@@ -109,7 +109,7 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
 
             # Read the POST body
             post_data = yield from payload.read()
-            post_vars = urllib.parse.parse_qs(post_data)
+            post_vars = {str(k, 'utf-8'): str(v[0], 'utf-8') for k, v in urllib.parse.parse_qs(post_data).items()}
 
             tx_parser = Router.get_transaction_formatter(post_vars.pop('txformat', 'json'))
 
