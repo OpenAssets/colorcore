@@ -28,7 +28,7 @@ import bitcoin.core.script
 import bitcoin.rpc
 import collections
 import colorcore.operations
-import colorcore.providers.core
+import colorcore.providers
 import colorcore.routing
 import json
 import openassets.protocol
@@ -84,7 +84,7 @@ class ControllerTests(unittest.TestCase):
             )
         ]
 
-        self.provider_instance = colorcore.providers.core.AbstractBlockchainProvider()
+        self.provider_instance = colorcore.providers.AbstractBlockchainProvider()
         self.provider = unittest.mock.create_autospec(self.provider_instance, instance=True)
 
     # getbalance

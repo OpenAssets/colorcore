@@ -30,8 +30,7 @@ import bitcoin.core
 import configparser
 import colorcore.caching
 import colorcore.operations
-import colorcore.providers.bitcoind
-import colorcore.providers.chain
+import colorcore.providers
 import inspect
 import json
 import openassets.transactions
@@ -92,17 +91,17 @@ class Configuration():
             api_secret = self.parser['chain.com']['secret']
 
             if self.blockchain_provider == 'chain.com':
-                return colorcore.providers.chain.ChainApiProvider(base_url, api_key, api_secret, None, loop)
+                return colorcore.providers.ChainApiProvider(base_url, api_key, api_secret, None, loop)
             else:
                 # Chain.com for querying transactions combined with Bitcoind for signing
                 rpc_url = self.parser['bitcoind']['rpcurl']
-                fallback = colorcore.providers.bitcoind.BitcoinCoreProvider(rpc_url)
+                fallback = colorcore.providers.BitcoinCoreProvider(rpc_url)
 
-                return colorcore.providers.chain.ChainApiProvider(base_url, api_key, api_secret, fallback, loop)
+                return colorcore.providers.ChainApiProvider(base_url, api_key, api_secret, fallback, loop)
         else:
             # Bitcoin Core provider
             rpc_url = self.parser['bitcoind']['rpcurl']
-            return colorcore.providers.bitcoind.BitcoinCoreProvider(rpc_url)
+            return colorcore.providers.BitcoinCoreProvider(rpc_url)
 
 
 class RpcServer(aiohttp.server.ServerHttpProtocol):

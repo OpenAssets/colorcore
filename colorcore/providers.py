@@ -25,12 +25,61 @@
 import aiohttp
 import asyncio
 import bitcoin.core
-import colorcore.providers.core
 import json
 
 
-class ChainApiProvider(colorcore.providers.core.AbstractBlockchainProvider):
-    """Provides a Blockchain provider using the chain.com API."""
+class AbstractBlockchainProvider(object):
+    """Represents an abstract class providing access to the Blockchain."""
+
+    @asyncio.coroutine
+    def list_unspent(self, addresses, *args, **kwargs):
+        """
+        Returns the list of unspent transaction outputs for the given addresses.
+
+        :param list[str] addresses: The addresses to query.
+        :return: The list of unspent transaction outputs.
+        :rtype: list[dict]
+        """
+        raise NotImplementedError
+
+    @asyncio.coroutine
+    def get_transaction(self, transaction_hash, *args, **kwargs):
+        raise NotImplementedError
+
+    @asyncio.coroutine
+    def sign_transaction(self, transaction, *args, **kwargs):
+        raise NotImplementedError
+
+    @asyncio.coroutine
+    def send_transaction(self, transaction, *args, **kwargs):
+        raise NotImplementedError
+
+
+class BitcoinCoreProvider(AbstractBlockchainProvider):
+    """Represents a Blockchain provider using Bitcoin Core."""
+
+    def __init__(self, rpc_url):
+        self._proxy = bitcoin.rpc.Proxy(rpc_url)
+
+    @asyncio.coroutine
+    def list_unspent(self, addresses, min_confirmations=0, max_confirmations=9999999, *args, **kwargs):
+        return self._proxy.listunspent(addrs=addresses, minconf=min_confirmations, maxconf=max_confirmations)
+
+    @asyncio.coroutine
+    def get_transaction(self, transaction_hash, *args, **kwargs):
+        return self._proxy.getrawtransaction(transaction_hash)
+
+    @asyncio.coroutine
+    def sign_transaction(self, transaction, *args, **kwargs):
+        return self._proxy.signrawtransaction(transaction)
+
+    @asyncio.coroutine
+    def send_transaction(self, transaction, *args, **kwargs):
+        return self._proxy.sendrawtransaction(transaction)
+
+
+class ChainApiProvider(AbstractBlockchainProvider):
+    """Represents a Blockchain provider using the chain.com API."""
 
     def __init__(self, base_url, api_key, api_secret, fallback_provider, loop):
         self._base_url = base_url
