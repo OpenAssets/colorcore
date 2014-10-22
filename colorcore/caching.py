@@ -96,7 +96,7 @@ class SqliteCache(openassets.protocol.OutputCache):
         """
         with contextlib.closing(self.connection.cursor()) as cursor:
             cursor.execute("""
-                  INSERT INTO Outputs
+                  INSERT OR IGNORE INTO Outputs
                     (TransactionHash, OutputIndex, Value, Script, AssetAddress, AssetQuantity, OutputType)
                   VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
