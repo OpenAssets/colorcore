@@ -30,6 +30,7 @@ import bitcoin.core
 import configparser
 import colorcore.caching
 import colorcore.operations
+import colorcore.providers.bitcoind
 import inspect
 import json
 import openassets.transactions
@@ -80,6 +81,9 @@ class Configuration():
             self.rpc_enabled = True
         else:
             self.rpc_enabled = False
+
+    def create_blockchain_provider(self):
+        return colorcore.providers.bitcoind.BitcoinCoreProvider(self.rpc_url)
 
 
 class RpcServer(aiohttp.server.ServerHttpProtocol):

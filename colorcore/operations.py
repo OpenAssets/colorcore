@@ -41,6 +41,7 @@ class Controller(object):
 
     def __init__(self, configuration, cache_factory, tx_parser, event_loop):
         self.configuration = configuration
+        self.provider = configuration.create_blockchain_provider()
         self.tx_parser = tx_parser
         self.cache_factory = cache_factory
         self.event_loop = event_loop
@@ -53,9 +54,8 @@ class Controller(object):
         maxconf: "The maximum number of confirmations (inclusive)"='9999999'
     ):
         """Obtains the balance of the wallet or an address."""
-        client = self._create_client()
         unspent_outputs = yield from self._get_unspent_outputs(
-            client, address, self._as_int(minconf), self._as_int(maxconf))
+            address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
         colored_outputs = [output.output for output in unspent_outputs]
 
         sorted_outputs = sorted(colored_outputs, key=lambda output: output.script)
@@ -95,9 +95,8 @@ class Controller(object):
     ):
         """Returns an array of unspent transaction outputs augmented with the asset address and quantity of
         each output."""
-        client = self._create_client()
         unspent_outputs = yield from self._get_unspent_outputs(
-            client, address, self._as_int(minconf), self._as_int(maxconf))
+            address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
 
         table = []
         for output in unspent_outputs:
@@ -127,9 +126,8 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending bitcoins from an address to another."""
-        client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(address)
 
         transaction = builder.transfer_bitcoin(
             colored_outputs,
@@ -138,7 +136,8 @@ class Controller(object):
             self._as_int(amount),
             self._get_fees(fees))
 
-        return self.tx_parser(self._process_transaction(client, transaction, mode))
+        final_transaction = yield from self._process_transaction(transaction, mode)
+        return self.tx_parser(final_transaction)
 
     @asyncio.coroutine
     def sendasset(self,
@@ -152,9 +151,8 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending an asset from an address to another."""
-        client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(address)
 
         transaction = builder.transfer_assets(
             colored_outputs,
@@ -164,7 +162,8 @@ class Controller(object):
             self._as_int(amount),
             self._get_fees(fees))
 
-        return self.tx_parser(self._process_transaction(client, transaction, mode))
+        final_transaction = yield from self._process_transaction(transaction, mode)
+        return self.tx_parser(final_transaction)
 
     @asyncio.coroutine
     def issueasset(self,
@@ -178,9 +177,8 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for issuing an asset."""
-        client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(address)
 
         if to is None:
             to = address
@@ -194,7 +192,8 @@ class Controller(object):
             bytes(metadata, encoding='utf-8'),
             self._get_fees(fees))
 
-        return self.tx_parser(self._process_transaction(client, transaction, mode))
+        final_transaction = yield from self._process_transaction(transaction, mode)
+        return self.tx_parser(final_transaction)
 
     @asyncio.coroutine
     def distribute(self,
@@ -213,14 +212,13 @@ class Controller(object):
         sent back is proportional to the number of bitcoins sent, and configurable through the ratio argument.
         Because the asset issuance transaction is chained from the inbound transaction, double spend is impossible."""
         decimal_price = self._as_decimal(price)
-        client = self._create_client()
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(client, address)
+        colored_outputs = yield from self._get_unspent_outputs(address)
 
         transactions = []
         summary = []
         for output in colored_outputs:
-            incoming_transaction = client.getrawtransaction(output.out_point.hash)
+            incoming_transaction = yield from self.provider.get_transaction(output.out_point.hash)
             script = bytes(incoming_transaction.vout[0].scriptPubKey)
             collected, amount_issued, change = self._calculate_distribution(
                 output.output.value, decimal_price, self._get_fees(fees), self.configuration.dust_limit)
@@ -251,7 +249,8 @@ class Controller(object):
         else:
             result = []
             for transaction in transactions:
-                result.append(self.tx_parser(self._process_transaction(client, transaction, mode)))
+                final_transaction = yield from self._process_transaction(transaction, mode)
+                result.append(self.tx_parser(final_transaction))
 
             return result
 
@@ -268,9 +267,6 @@ class Controller(object):
         return collected, units_issued, effective_amount - collected
 
     # Private methods
-
-    def _create_client(self):
-        return bitcoin.rpc.Proxy(self.configuration.rpc_url)
 
     @staticmethod
     def _as_int(value):
@@ -293,10 +289,10 @@ class Controller(object):
             return self._as_int(value)
 
     @asyncio.coroutine
-    def _get_unspent_outputs(self, client, address, *args):
+    def _get_unspent_outputs(self, address, **kwargs):
         cache = self.cache_factory()
-        engine = openassets.protocol.ColoringEngine(asyncio.coroutine(client.getrawtransaction), cache, self.event_loop)
-        unspent = client.listunspent(addrs=[address] if address else None, *args)
+        engine = openassets.protocol.ColoringEngine(self.provider.get_transaction, cache, self.event_loop)
+        unspent = yield from self.provider.list_unspent(addresses=[address] if address else None, **kwargs)
 
         result = []
         for item in unspent:
@@ -310,16 +306,16 @@ class Controller(object):
         yield from cache.commit()
         return result
 
-    @staticmethod
-    def _process_transaction(client, transaction, mode):
+    @asyncio.coroutine
+    def _process_transaction(self, transaction, mode):
         if mode == 'broadcast' or mode == 'signed':
             # Sign the transaction
-            signed_transaction = client.signrawtransaction(transaction)
+            signed_transaction = yield from self.provider.sign_transaction(transaction)
             if not signed_transaction['complete']:
                 raise colorcore.routing.ControllerError("Could not sign the transaction.")
 
             if mode == 'broadcast':
-                result = client.sendrawtransaction(signed_transaction['tx'])
+                result = yield from self.provider.send_transaction(signed_transaction['tx'])
                 return bitcoin.core.b2lx(result)
             else:
                 return signed_transaction['tx']
