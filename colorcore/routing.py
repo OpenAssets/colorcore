@@ -31,6 +31,7 @@ import configparser
 import colorcore.caching
 import colorcore.operations
 import colorcore.providers.bitcoind
+import colorcore.providers.chain
 import inspect
 import json
 import openassets.transactions
@@ -68,8 +69,9 @@ class Configuration():
         parser = configparser.ConfigParser()
         config_path = 'config.ini'
         parser.read(config_path)
+        self.parser = parser
 
-        self.rpc_url = parser['bitcoind']['rpcurl']
+        self.blockchain_provider = parser.get('general', 'blockchain-provider', fallback=None)
         self.version_byte = int(parser['environment']['version-byte'])
         self.p2sh_version_byte = int(parser['environment']['p2sh-version-byte'])
         self.dust_limit = int(parser['environment']['dust-limit'])
@@ -82,8 +84,25 @@ class Configuration():
         else:
             self.rpc_enabled = False
 
-    def create_blockchain_provider(self):
-        return colorcore.providers.bitcoind.BitcoinCoreProvider(self.rpc_url)
+    def create_blockchain_provider(self, loop):
+        if self.blockchain_provider in ['chain.com', 'chain.com+bitcoind']:
+            # Chain.com API provider
+            base_url = self.parser['chain.com']['base-url']
+            api_key = self.parser['chain.com']['api-key-id']
+            api_secret = self.parser['chain.com']['secret']
+
+            if self.blockchain_provider == 'chain.com':
+                return colorcore.providers.chain.ChainApiProvider(base_url, api_key, api_secret, None, loop)
+            else:
+                # Chain.com for querying transactions combined with Bitcoind for signing
+                rpc_url = self.parser['bitcoind']['rpcurl']
+                fallback = colorcore.providers.bitcoind.BitcoinCoreProvider(rpc_url)
+
+                return colorcore.providers.chain.ChainApiProvider(base_url, api_key, api_secret, fallback, loop)
+        else:
+            # Bitcoin Core provider
+            rpc_url = self.parser['bitcoind']['rpcurl']
+            return colorcore.providers.bitcoind.BitcoinCoreProvider(rpc_url)
 
 
 class RpcServer(aiohttp.server.ServerHttpProtocol):
@@ -101,16 +120,15 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
         try:
             url = re.search('^/(?P<operation>\w+)$', message.path)
             if url is None:
-                yield from self.error(102, 'The request path is invalid', message)
-                return
+                return (yield from self.error(102, 'The request path is invalid', message))
 
             # Get the operation function corresponding to the URL path
             operation_name = url.group('operation')
             operation = getattr(self.controller, operation_name, None)
 
             if operation_name == '' or operation_name[0] == '_' or operation is None:
-                yield from self.error(103, 'The operation name {name} is invalid'.format(name=operation_name), message)
-                return
+                return (yield from self.error(
+                    103, 'The operation name {name} is invalid'.format(name=operation_name), message))
 
             # Read the POST body
             post_data = yield from payload.read()
@@ -123,14 +141,13 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
             try:
                 result = yield from operation(controller, **post_vars)
             except TypeError:
-                yield from self.error(104, 'Invalid parameters provided', message)
-                return
+                return (yield from self.error(104, 'Invalid parameters provided', message))
             except ControllerError as error:
-                yield from self.error(201, str(error), message)
-                return
+                return (yield from self.error(201, str(error), message))
             except openassets.transactions.TransactionBuilderError as error:
-                yield from self.error(301, type(error).__name__, message)
-                return
+                return (yield from self.error(301, type(error).__name__, message))
+            except NotImplementedError as error:
+                return (yield from self.error(202, str(error), message))
 
             response = self.create_response(200, message)
             yield from self.json_response(response, result)
@@ -226,6 +243,9 @@ class Router:
                 except openassets.transactions.TransactionBuilderError as error:
                     # A transaction could not be built
                     self.output.write("Error: {}\n".format(type(error).__name__))
+                except NotImplementedError as error:
+                    # The transaction provider used is not capable of performing the operation
+                    self.output.write("Error: {}\n".format(str(error)))
 
             self.event_loop.run_until_complete(coroutine_wrapper())
 

@@ -41,7 +41,7 @@ class Controller(object):
 
     def __init__(self, configuration, cache_factory, tx_parser, event_loop):
         self.configuration = configuration
-        self.provider = configuration.create_blockchain_provider()
+        self.provider = configuration.create_blockchain_provider(event_loop)
         self.tx_parser = tx_parser
         self.cache_factory = cache_factory
         self.event_loop = event_loop
