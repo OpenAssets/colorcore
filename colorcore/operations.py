@@ -28,6 +28,7 @@ import bitcoin.core
 import bitcoin.core.serialize
 import bitcoin.core.script
 import bitcoin.rpc
+import bitcoin.wallet
 import colorcore.routing
 import decimal
 import itertools
@@ -129,12 +130,10 @@ class Controller(object):
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = yield from self._get_unspent_outputs(address)
 
-        transaction = builder.transfer_bitcoin(
-            colored_outputs,
-            self.convert.base58_to_script(address),
-            self.convert.base58_to_script(to),
-            self._as_int(amount),
-            self._get_fees(fees))
+        transfer_parameters = openassets.transactions.TransferParameters(
+            colored_outputs, self.convert.base58_to_script(to), self.convert.base58_to_script(address),
+            self._as_int(amount))
+        transaction = builder.transfer_bitcoin(transfer_parameters, self._get_fees(fees))
 
         final_transaction = yield from self._process_transaction(transaction, mode)
         return self.tx_parser(final_transaction)
@@ -143,7 +142,7 @@ class Controller(object):
     def sendasset(self,
         address: "The address to send the asset from",
         asset: "The asset address identifying the asset to send",
-        amount: "The amount of units to send",
+        amount: "The amount of asset units to send",
         to: "The address to send the asset to",
         fees: "The fess in satoshis for the transaction"=None,
         mode: """'broadcast' (default) for signing and broadcasting the transaction,
@@ -154,13 +153,12 @@ class Controller(object):
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = yield from self._get_unspent_outputs(address)
 
+        transfer_parameters = openassets.transactions.TransferParameters(
+            colored_outputs, self.convert.base58_to_script(to), self.convert.base58_to_script(address),
+            self._as_int(amount))
+
         transaction = builder.transfer_assets(
-            colored_outputs,
-            self.convert.base58_to_script(address),
-            self.convert.base58_to_script(to),
-            self.convert.base58_to_asset_address(asset),
-            self._as_int(amount),
-            self._get_fees(fees))
+            self.convert.base58_to_asset_address(asset), transfer_parameters, self._get_fees(fees))
 
         final_transaction = yield from self._process_transaction(transaction, mode)
         return self.tx_parser(final_transaction)
@@ -168,7 +166,7 @@ class Controller(object):
     @asyncio.coroutine
     def issueasset(self,
         address: "The address to issue the asset from",
-        amount: "The amount of units to send",
+        amount: "The amount of asset units to issue",
         to: "The address to send the asset to; if unspecified, the assets are sent back to the issuing address"=None,
         metadata: "The metadata to embed in the transaction"='',
         fees: "The fess in satoshis for the transaction"=None,
@@ -183,14 +181,11 @@ class Controller(object):
         if to is None:
             to = address
 
-        transaction = builder.issue(
-            colored_outputs,
-            self.convert.base58_to_script(address),
-            self.convert.base58_to_script(to),
-            self.convert.base58_to_script(address),
-            self._as_int(amount),
-            bytes(metadata, encoding='utf-8'),
-            self._get_fees(fees))
+        issuance_parameters = openassets.transactions.TransferParameters(
+            colored_outputs, self.convert.base58_to_script(to), self.convert.base58_to_script(address),
+            self._as_int(amount))
+
+        transaction = builder.issue(issuance_parameters, bytes(metadata, encoding='utf-8'), self._get_fees(fees))
 
         final_transaction = yield from self._process_transaction(transaction, mode)
         return self.tx_parser(final_transaction)
@@ -292,7 +287,15 @@ class Controller(object):
     def _get_unspent_outputs(self, address, **kwargs):
         cache = self.cache_factory()
         engine = openassets.protocol.ColoringEngine(self.provider.get_transaction, cache, self.event_loop)
-        unspent = yield from self.provider.list_unspent(addresses=[address] if address else None, **kwargs)
+
+        if address is None:
+            addresses = None
+        elif not self.configuration.disable_derived_addresses:
+            addresses = [address, self.convert.get_derived_address(address)]
+        else:
+            addresses = [address]
+
+        unspent = yield from self.provider.list_unspent(addresses, **kwargs)
 
         result = []
         for item in unspent:
@@ -365,5 +368,18 @@ class Convert(object):
             and opcodes[3][0] == 0x88 and opcodes[4][0] == 0xac:
             opcode, data, sop_idx = opcodes[2]
             return str(bitcoin.base58.CBase58Data.from_bytes(data, self.p2a_version_byte))
+        elif len(opcodes) == 3 and opcodes[0][0] == 0xa9 and opcodes[2][0] == 0x87:
+            opcode, data, sop_idx = opcodes[1]
+            return str(bitcoin.base58.CBase58Data.from_bytes(data, self.p2sh_version_byte))
 
         return "Unknown script"
+
+    def get_derived_address(self, base_address):
+        address = bitcoin.base58.CBase58Data(base_address)
+        if address.nVersion != self.p2a_version_byte:
+            raise colorcore.routing.ControllerError("This address cannot be derived.")
+
+        script = self.base58_to_script(base_address)
+        script_hash = openassets.protocol.ColoringEngine.hash_script(script)
+
+        return str(bitcoin.base58.CBase58Data.from_bytes(script_hash, self.p2sh_version_byte))

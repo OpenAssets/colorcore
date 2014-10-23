@@ -174,7 +174,7 @@ class ControllerTests(unittest.TestCase):
             'locktime': 0,
             'vin': [
                 self.get_input(1, self.addresses[0]),
-                self.get_input(3, self.addresses[0])
+                self.get_input(2, self.addresses[0])
             ],
             'vout': [
                 # Bitcoin change
@@ -241,7 +241,6 @@ class ControllerTests(unittest.TestCase):
     def test_sendbitcoin_default_fees(self, *args, loop):
         self.setup_mocks(loop, [
             (80, self.addresses[0].script, None, 0),
-            (50, self.addresses[1].script, None, 0),
             (50, self.addresses[0].script, None, 0)
         ])
 
@@ -258,7 +257,7 @@ class ControllerTests(unittest.TestCase):
             'locktime': 0,
             'vin': [
                 self.get_input(0, self.addresses[0]),
-                self.get_input(2, self.addresses[0])
+                self.get_input(1, self.addresses[0])
             ],
             'vout': [
                 # Bitcoin change
@@ -294,7 +293,6 @@ class ControllerTests(unittest.TestCase):
         self.setup_mocks(loop, [
             (20, self.addresses[0].script, self.assets[0].binary, 30),
             (80, self.addresses[0].script, None, 0),
-            (50, self.addresses[1].script, None, 0),
             (50, self.addresses[0].script, None, 0)
         ])
 
@@ -315,7 +313,6 @@ class ControllerTests(unittest.TestCase):
     def test_sendasset_success(self, *args, loop):
         self.setup_mocks(loop, [
             (10, self.addresses[0].script, self.assets[0].binary, 50),
-            (50, self.addresses[1].script, None, 0),
             (40, self.addresses[0].script, None, 0),
             (10, self.addresses[0].script, self.assets[0].binary, 80)
         ])
@@ -335,8 +332,8 @@ class ControllerTests(unittest.TestCase):
             'locktime': 0,
             'vin': [
                 self.get_input(0, self.addresses[0]),
-                self.get_input(3, self.addresses[0]),
-                self.get_input(2, self.addresses[0])
+                self.get_input(2, self.addresses[0]),
+                self.get_input(1, self.addresses[0])
             ],
             'vout': [
                 # Marker output
@@ -357,7 +354,6 @@ class ControllerTests(unittest.TestCase):
     def test_issueasset_success(self, *args, loop):
         self.setup_mocks(loop, [
             (5, self.addresses[0].script, None, 0),
-            (50, self.addresses[1].script, None, 0),
             (35, self.addresses[0].script, None, 0)
         ])
 
@@ -376,7 +372,7 @@ class ControllerTests(unittest.TestCase):
             'locktime': 0,
             'vin': [
                 self.get_input(0, self.addresses[0]),
-                self.get_input(2, self.addresses[0])
+                self.get_input(1, self.addresses[0])
             ],
             'vout': [
                 # Asset issued

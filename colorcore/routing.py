@@ -71,6 +71,7 @@ class Configuration():
         self.parser = parser
 
         self.blockchain_provider = parser.get('general', 'blockchain-provider', fallback=None)
+        self.disable_derived_addresses = parser.get('general', 'disable-derived-addresses', fallback='0') == '1'
         self.version_byte = int(parser['environment']['version-byte'])
         self.p2sh_version_byte = int(parser['environment']['p2sh-version-byte'])
         self.dust_limit = int(parser['environment']['dust-limit'])
