@@ -23,10 +23,11 @@
 # SOFTWARE.
 
 import asyncio
+import colorcore.providers
 import colorcore.routing
+import configparser
 import io
 import openassets.transactions
-import tests.helpers
 import unittest
 import unittest.mock
 
@@ -119,3 +120,63 @@ class RouterTests(unittest.TestCase):
         return (
             colorcore.routing.Router(MockController, self.output, object, self.configuration, event_loop),
             event_loop)
+
+
+class ConfigurationTests(unittest.TestCase):
+
+    def test_init(self):
+        config = configparser.ConfigParser()
+        config.add_section('environment')
+        config.add_section('cache')
+        env = config['environment']
+        env['version-byte'] = '1'
+        env['p2sh-version-byte'] = '20'
+        env['dust-limit'] = '100'
+        env['default-fees'] = '300'
+        config['cache']['path'] = 'test_path'
+
+        target = colorcore.routing.Configuration(config)
+
+        self.assertEqual(None, target.blockchain_provider)
+        self.assertEqual(1, target.version_byte)
+        self.assertEqual(20, target.p2sh_version_byte)
+        self.assertEqual(100, target.dust_limit)
+        self.assertEqual(300, target.default_fees)
+        self.assertEqual('test_path', target.cache_path)
+        self.assertEqual(False, target.rpc_enabled)
+
+    @unittest.mock.patch('colorcore.routing.Configuration.__init__', autospec=True)
+    def test_create_blockchain_provider(self, init_mock):
+        init_mock.return_value = None
+
+        # chain.com
+        configuration = colorcore.routing.Configuration(None)
+        configuration.blockchain_provider = 'chain.com'
+        configuration.parser = {'chain.com': {'base-url': '1', 'api-key-id': '2', 'secret': '3'}}
+
+        result = configuration.create_blockchain_provider(None)
+
+        self.assertIsInstance(result, colorcore.providers.ChainApiProvider)
+        self.assertIsNone(result._fallback_provider)
+
+        # chain.com + Bitcoind
+        configuration = colorcore.routing.Configuration(None)
+        configuration.blockchain_provider = 'chain.com+bitcoind'
+        configuration.parser = {
+            'chain.com': {'base-url': '1', 'api-key-id': '2', 'secret': '3'},
+            'bitcoind': {'rpcurl': 'url'}
+        }
+
+        result = configuration.create_blockchain_provider(None)
+
+        self.assertIsInstance(result, colorcore.providers.ChainApiProvider)
+        self.assertIsNotNone(result._fallback_provider)
+
+        # Bitcoind
+        configuration = colorcore.routing.Configuration(None)
+        configuration.blockchain_provider = 'bitcoind'
+        configuration.parser = {'bitcoind': {'rpcurl': 'url'}}
+
+        result = configuration.create_blockchain_provider(None)
+
+        self.assertIsInstance(result, colorcore.providers.BitcoinCoreProvider)

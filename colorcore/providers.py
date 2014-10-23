@@ -44,14 +44,35 @@ class AbstractBlockchainProvider(object):
 
     @asyncio.coroutine
     def get_transaction(self, transaction_hash, *args, **kwargs):
+        """
+        Returns a transaction given its hash.
+
+        :param bytes transaction_hash: The hash of the transaction.
+        :return: The transaction that was queried.
+        :rtype: CTransaction
+        """
         raise NotImplementedError
 
     @asyncio.coroutine
     def sign_transaction(self, transaction, *args, **kwargs):
+        """
+        Signs a Bitcoin transaction.
+
+        :param CTransaction transaction: The transaction to sign.
+        :return: A dictionary indicating whether the signing is complete.
+        :rtype: dict
+        """
         raise NotImplementedError
 
     @asyncio.coroutine
     def send_transaction(self, transaction, *args, **kwargs):
+        """
+        Sends a Bitcoin transaction to the network.
+
+        :param CTransaction transaction: The transaction to send.
+        :return: The hexadecimal representation of the transaction hash.
+        :rtype: str
+        """
         raise NotImplementedError
 
 

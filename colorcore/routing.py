@@ -45,7 +45,10 @@ class Program(object):
 
     @staticmethod
     def execute():
-        configuration = Configuration()
+        parser = configparser.ConfigParser()
+        parser.read('config.ini')
+
+        configuration = Configuration(parser)
 
         class NetworkParams(bitcoin.core.CoreChainParams):
             BASE58_PREFIXES = {'PUBKEY_ADDR':configuration.version_byte, 'SCRIPT_ADDR':configuration.p2sh_version_byte}
@@ -64,10 +67,7 @@ class Program(object):
 class Configuration():
     """Class for managing the Colorcore configuration file."""
 
-    def __init__(self):
-        parser = configparser.ConfigParser()
-        config_path = 'config.ini'
-        parser.read(config_path)
+    def __init__(self, parser):
         self.parser = parser
 
         self.blockchain_provider = parser.get('general', 'blockchain-provider', fallback=None)
