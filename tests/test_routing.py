@@ -131,6 +131,7 @@ class ConfigurationTests(unittest.TestCase):
         env = config['environment']
         env['version-byte'] = '1'
         env['p2sh-version-byte'] = '20'
+        env['secret-version-byte'] = '30'
         env['dust-limit'] = '100'
         env['default-fees'] = '300'
         config['cache']['path'] = 'test_path'
@@ -140,6 +141,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(None, target.blockchain_provider)
         self.assertEqual(1, target.version_byte)
         self.assertEqual(20, target.p2sh_version_byte)
+        self.assertEqual(30, target.secret_version_byte)
         self.assertEqual(100, target.dust_limit)
         self.assertEqual(300, target.default_fees)
         self.assertEqual('test_path', target.cache_path)

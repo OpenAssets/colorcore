@@ -66,12 +66,15 @@ class Controller(object):
             script_outputs = list(group)
             total_value = self.convert.to_coin(sum([item.value for item in script_outputs]))
             base58 = self.convert.script_to_base58(script)
-
+            derived = self.convert.get_derived_address(base58)
             group_details = {
                 'address': base58,
                 'value': total_value,
                 'assets': []
             }
+
+            if derived is not None:
+                group_details['derived_address'] = derived
 
             table.append(group_details)
 
@@ -135,7 +138,7 @@ class Controller(object):
             self._as_int(amount))
         transaction = builder.transfer_bitcoin(transfer_parameters, self._get_fees(fees))
 
-        final_transaction = yield from self._process_transaction(transaction, mode)
+        final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
         return self.tx_parser(final_transaction)
 
     @asyncio.coroutine
@@ -160,7 +163,7 @@ class Controller(object):
         transaction = builder.transfer_assets(
             self.convert.base58_to_asset_address(asset), transfer_parameters, self._get_fees(fees))
 
-        final_transaction = yield from self._process_transaction(transaction, mode)
+        final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
         return self.tx_parser(final_transaction)
 
     @asyncio.coroutine
@@ -176,7 +179,7 @@ class Controller(object):
     ):
         """Creates a transaction for issuing an asset."""
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(address)
+        colored_outputs = yield from self._get_unspent_outputs(address, exclude_derived=True)
 
         if to is None:
             to = address
@@ -187,7 +190,7 @@ class Controller(object):
 
         transaction = builder.issue(issuance_parameters, bytes(metadata, encoding='utf-8'), self._get_fees(fees))
 
-        final_transaction = yield from self._process_transaction(transaction, mode)
+        final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
         return self.tx_parser(final_transaction)
 
     @asyncio.coroutine
@@ -208,7 +211,7 @@ class Controller(object):
         Because the asset issuance transaction is chained from the inbound transaction, double spend is impossible."""
         decimal_price = self._as_decimal(price)
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(address)
+        colored_outputs = yield from self._get_unspent_outputs(address, exclude_derived=True)
 
         transactions = []
         summary = []
@@ -244,7 +247,7 @@ class Controller(object):
         else:
             result = []
             for transaction in transactions:
-                final_transaction = yield from self._process_transaction(transaction, mode)
+                final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
                 result.append(self.tx_parser(final_transaction))
 
             return result
@@ -284,13 +287,13 @@ class Controller(object):
             return self._as_int(value)
 
     @asyncio.coroutine
-    def _get_unspent_outputs(self, address, **kwargs):
+    def _get_unspent_outputs(self, address, exclude_derived=False, **kwargs):
         cache = self.cache_factory()
         engine = openassets.protocol.ColoringEngine(self.provider.get_transaction, cache, self.event_loop)
 
         if address is None:
             addresses = None
-        elif not self.configuration.disable_derived_addresses:
+        elif not self.configuration.disable_derived_addresses and not exclude_derived:
             addresses = [address, self.convert.get_derived_address(address)]
         else:
             addresses = [address]
@@ -310,21 +313,46 @@ class Controller(object):
         return result
 
     @asyncio.coroutine
-    def _process_transaction(self, transaction, mode):
+    def _process_transaction(self, transaction, address, outputs, mode):
         if mode == 'broadcast' or mode == 'signed':
             # Sign the transaction
-            signed_transaction = yield from self.provider.sign_transaction(transaction)
-            if not signed_transaction['complete']:
-                raise colorcore.routing.ControllerError("Could not sign the transaction.")
+            signed_transaction = yield from self._sign_transaction(address, outputs, transaction)
 
             if mode == 'broadcast':
-                result = yield from self.provider.send_transaction(signed_transaction['tx'])
+                result = yield from self.provider.send_transaction(signed_transaction)
                 return bitcoin.core.b2lx(result)
             else:
-                return signed_transaction['tx']
+                return signed_transaction
         else:
             # Return the transaction in raw format as a hex string
             return transaction
+
+    @asyncio.coroutine
+    def _sign_transaction(self, address, outputs, transaction):
+        script_map = {(output.out_point.hash, output.out_point.n): output.output.script for output in outputs}
+        private_key = yield from self.provider.get_private_key(address)
+        public_key = bitcoin.core.script.CScriptOp.encode_op_pushdata(private_key.pub)
+        base_script = self.convert.base58_to_script(address)
+        derived_address = self.convert.get_derived_address(address)
+        derived_script = self.convert.base58_to_script(derived_address)
+
+        result = bitcoin.core.CMutableTransaction.from_tx(transaction)
+        for i, input in enumerate(transaction.vin):
+            script = script_map[(input.prevout.hash, input.prevout.n)]
+            if script in [base_script, derived_script]:
+                signed_hash = bitcoin.core.script.SignatureHash(
+                    bitcoin.core.script.CScript(base_script), transaction, i, bitcoin.core.script.SIGHASH_ALL)
+                signature = private_key.sign(signed_hash)
+                signature += bytes([bitcoin.core.script.SIGHASH_ALL])
+
+                input_script = bitcoin.core.script.CScriptOp.encode_op_pushdata(signature) + public_key
+
+                if script == derived_script:
+                    input_script += bitcoin.core.script.CScriptOp.encode_op_pushdata(base_script)
+
+                result.vin[i].scriptSig = bitcoin.core.script.CScript(input_script)
+
+        return result
 
 
 class Convert(object):
@@ -340,12 +368,14 @@ class Convert(object):
 
     def base58_to_script(self, base58_address):
         address = bitcoin.base58.CBase58Data(base58_address)
-        if address.nVersion != self.p2a_version_byte:
-            raise colorcore.routing.ControllerError("Invalid version byte.")
 
-        address_bytes = address.to_bytes()
-        return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address_bytes) \
-            + bytes([0x88, 0xac])
+        if address.nVersion == self.p2a_version_byte:
+            return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address.to_bytes()) \
+                + bytes([0x88, 0xac])
+        elif address.nVersion == self.p2sh_version_byte:
+            return bytes([0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address.to_bytes()) + bytes([0x87])
+        else:
+            raise colorcore.routing.ControllerError("Invalid version byte.")
 
     def base58_to_asset_address(self, base58_address):
         address = bitcoin.base58.CBase58Data(base58_address)
@@ -377,7 +407,7 @@ class Convert(object):
     def get_derived_address(self, base_address):
         address = bitcoin.base58.CBase58Data(base_address)
         if address.nVersion != self.p2a_version_byte:
-            raise colorcore.routing.ControllerError("This address cannot be derived.")
+            return None
 
         script = self.base58_to_script(base_address)
         script_hash = openassets.protocol.ColoringEngine.hash_script(script)

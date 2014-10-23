@@ -26,6 +26,7 @@ import asyncio
 import bitcoin.core
 import bitcoin.core.script
 import bitcoin.rpc
+import bitcoin.wallet
 import collections
 import colorcore.operations
 import colorcore.providers
@@ -39,34 +40,41 @@ import unittest.mock
 
 @unittest.mock.patch('openassets.protocol.ColoringEngine.get_output', autospec=True)
 class ControllerTests(unittest.TestCase):
+    bitcoin.SelectParams('regtest')
+    private_key = bitcoin.wallet.CBitcoinSecret('cUgetboAcBhZyma6SvFHhefkw9nVnTpcpswePM5YRv2GqMjrqSgR')
 
     def setUp(self):
         self.maxDiff = None
 
-        address = collections.namedtuple('Address', ['address', 'script', 'script_hex'])
+        address = collections.namedtuple('Address', ['address', 'derived', 'script', 'script_hex'])
         self.addresses = [
             address(
                 address='moogjqrTWfjkyxLHk9ytzp147EfXVvqLEP',
+                derived='2N7GMwyG7pN4ZoByHX8eArHDHitUFqyuqSr',
                 script=bitcoin.core.x('76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'),
                 script_hex='76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'
             ),
             address(
                 address='mpLppfoBWbdF9Y7zeN9sJHcbMzQvAeRqMs',
+                derived='2NBpNRdo28FREjmeKD6Mrxj1NKm8Ufwh35v',
                 script=bitcoin.core.x('76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'),
                 script_hex='76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'
             ),
             address(
                 address='mr5im8BFT5ycERKHCgZoS7cRN5PewwTR4d',
+                derived=None,
                 script=bitcoin.core.x('76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'),
                 script_hex='76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'
             ),
             address(
                 address='mkN27mch2UtnRT28k8c5mQPYrW75cYdXUi',
+                derived=None,
                 script=bitcoin.core.x('76a914352813875577109204686b2e687f7ea046235aa588ac'),
                 script_hex='76a914352813875577109204686b2e687f7ea046235aa588ac'
             ),
             address(
                 address='msdzhXTdebVizEJnPrqGWFj5ruFRA8TLxF',
+                derived=None,
                 script=bitcoin.core.x('76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'),
                 script_hex='76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'
             )
@@ -105,12 +113,14 @@ class ControllerTests(unittest.TestCase):
                 {
                     'address': self.addresses[0].address,
                     'value': '0.00000100',
-                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '30'}]
+                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '30'}],
+                    'derived_address': self.addresses[0].derived
                 },
                 {
                     'address': self.addresses[1].address,
                     'value': '0.00000050',
-                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '10'}]
+                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '10'}],
+                    'derived_address': self.addresses[1].derived
                 }
             ],
             result)
@@ -187,30 +197,22 @@ class ControllerTests(unittest.TestCase):
 
     @helpers.async_test
     def test_sendbitcoin_signed_success(self, *args, loop):
-        self.set_sign_transaction_mock(True)
-
+        self.loop = loop
+        self.set_get_private_key_mock()
         result = yield from self._setup_sendbitcoin_test('signed', 'json', loop)
 
-        self.assertEqual(1, self.provider.sign_transaction.call_count)
+        self.assertEqual(1, self.provider.get_private_key.call_count)
         self.assertEqual(2, len(result['vin']))
         self.assertEqual(2, len(result['vout']))
 
     @helpers.async_test
-    def test_sendbitcoin_signed_invalid_signature(self, *args, loop):
-        self.set_sign_transaction_mock(False)
-
-        yield from helpers.assert_coroutine_raises(
-            self, colorcore.routing.ControllerError, self._setup_sendbitcoin_test, 'signed', 'json', loop)
-        self.assertEqual(1, self.provider.sign_transaction.call_count)
-
-    @helpers.async_test
     def test_sendbitcoin_broadcast(self, *args, loop):
         self.loop = loop
-        self.set_sign_transaction_mock(True)
+        self.set_get_private_key_mock()
         self.set_send_transaction_mock(b'transaction ID')
         result = yield from self._setup_sendbitcoin_test('broadcast', 'json', loop)
 
-        self.assertEqual(1, self.provider.sign_transaction.call_count)
+        self.assertEqual(1, self.provider.get_private_key.call_count)
         self.assertEqual(1, self.provider.send_transaction.call_count)
         self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
 
@@ -228,12 +230,12 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_sendbitcoin_raw_broadcast(self, *args, loop):
         self.loop = loop
-        self.set_sign_transaction_mock(True)
+        self.set_get_private_key_mock()
         self.set_send_transaction_mock(b'transaction ID')
 
         result = yield from self._setup_sendbitcoin_test('broadcast', 'raw', loop)
 
-        self.assertEqual(1, self.provider.sign_transaction.call_count)
+        self.assertEqual(1, self.provider.get_private_key.call_count)
         self.assertEqual(1, self.provider.send_transaction.call_count)
         self.assertEqual(bitcoin.core.b2lx(b'transaction ID'), result)
 
@@ -511,10 +513,9 @@ class ControllerTests(unittest.TestCase):
         self.provider.get_transaction = unittest.mock.create_autospec(self.provider_instance.get_transaction)
         self.provider.get_transaction.side_effect = side_effect
 
-    def set_sign_transaction_mock(self, complete):
-        self.provider.sign_transaction = unittest.mock.create_autospec(self.provider_instance.sign_transaction)
-        self.provider.sign_transaction.side_effect = \
-            lambda transaction: self.completed({'complete': complete, 'tx': transaction})
+    def set_get_private_key_mock(self):
+        self.provider.get_private_key = unittest.mock.create_autospec(self.provider_instance.get_private_key)
+        self.provider.get_private_key.return_value = self.completed(self.private_key)
 
     def set_send_transaction_mock(self, return_value):
         self.provider.send_transaction = unittest.mock.create_autospec(self.provider_instance.send_transaction)
@@ -583,19 +584,21 @@ class ControllerTests(unittest.TestCase):
 class ConvertTests(unittest.TestCase):
 
     def test_base58_to_script_success(self):
-         target = colorcore.operations.Convert(0, 5)
+        target = colorcore.operations.Convert(0, 5)
 
-         result = target.base58_to_script('1AaaBxiLVzo1xZSFpAw3Zm9YBYAYQgQuuU')
+        result = target.base58_to_script('1AaaBxiLVzo1xZSFpAw3Zm9YBYAYQgQuuU')
+        self.assertEqual(bitcoin.core.x('76a914' + '691290451961ad74e177bf44f32d9e2fe7454ee6' + '88ac'), result)
 
-         self.assertEqual(bitcoin.core.x('76a914' + '691290451961ad74e177bf44f32d9e2fe7454ee6' + '88ac'), result)
+        result = target.base58_to_script('36hBrMeUfevFPZdY2iYSHVaP9jdLd9Np4R')
+        self.assertEqual(bitcoin.core.x('a914' + '36e0ea8e93eaa0285d641305f4c81e563aa570a2' + '87'), result)
 
     def test_base58_to_script_invalid_version(self):
-         target = colorcore.operations.Convert(0, 5)
+        target = colorcore.operations.Convert(0, 5)
 
-         self.assertRaises(
-             colorcore.routing.ControllerError,
-             target.base58_to_script,
-             '36hBrMeUfevFPZdY2iYSHVaP9jdLd9Np4R')
+        self.assertRaises(
+            colorcore.routing.ControllerError,
+            target.base58_to_script,
+            'mr5im8BFT5ycERKHCgZoS7cRN5PewwTR4d')
 
     def test_base58_to_asset_address_success(self):
          target = colorcore.operations.Convert(0, 5)

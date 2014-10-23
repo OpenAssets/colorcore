@@ -25,6 +25,8 @@
 import aiohttp
 import asyncio
 import bitcoin.core
+import bitcoin.rpc
+import bitcoin.wallet
 import json
 
 
@@ -54,13 +56,13 @@ class AbstractBlockchainProvider(object):
         raise NotImplementedError
 
     @asyncio.coroutine
-    def sign_transaction(self, transaction, *args, **kwargs):
+    def get_private_key(self, address, *args, **kwargs):
         """
-        Signs a Bitcoin transaction.
+        Returns the private key for the given address.
 
-        :param CTransaction transaction: The transaction to sign.
-        :return: A dictionary indicating whether the signing is complete.
-        :rtype: dict
+        :param str address: The address of which the key is returned.
+        :return: The private key.
+        :rtype: CKey
         """
         raise NotImplementedError
 
@@ -91,8 +93,9 @@ class BitcoinCoreProvider(AbstractBlockchainProvider):
         return self._proxy.getrawtransaction(transaction_hash)
 
     @asyncio.coroutine
-    def sign_transaction(self, transaction, *args, **kwargs):
-        return self._proxy.signrawtransaction(transaction)
+    def get_private_key(self, address, *args, **kwargs):
+        private_key = self._proxy._call('dumpprivkey', address)
+        return bitcoin.wallet.CBitcoinSecret(private_key)
 
     @asyncio.coroutine
     def send_transaction(self, transaction, *args, **kwargs):
@@ -141,11 +144,11 @@ class ChainApiProvider(AbstractBlockchainProvider):
         )
 
     @asyncio.coroutine
-    def sign_transaction(self, transaction, *args, **kwargs):
+    def get_private_key(self, address, *args, **kwargs):
         if self._fallback_provider:
-            return (yield from self._fallback_provider.sign_transaction(transaction, *args, **kwargs))
+            return (yield from self._fallback_provider.get_private_key(address, *args, **kwargs))
         else:
-            raise NotImplementedError("This blockchain provider does not support signing a transaction.")
+            raise NotImplementedError("This blockchain provider does not hold any private key.")
 
     @asyncio.coroutine
     def send_transaction(self, transaction, *args, **kwargs):

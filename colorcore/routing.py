@@ -51,7 +51,11 @@ class Program(object):
         configuration = Configuration(parser)
 
         class NetworkParams(bitcoin.core.CoreChainParams):
-            BASE58_PREFIXES = {'PUBKEY_ADDR':configuration.version_byte, 'SCRIPT_ADDR':configuration.p2sh_version_byte}
+            BASE58_PREFIXES = {
+                'PUBKEY_ADDR':configuration.version_byte,
+                'SCRIPT_ADDR':configuration.p2sh_version_byte,
+                'SECRET_KEY': configuration.secret_version_byte
+            }
 
         bitcoin.params = NetworkParams()
         router = Router(
@@ -74,6 +78,7 @@ class Configuration():
         self.disable_derived_addresses = parser.get('general', 'disable-derived-addresses', fallback='0') == '1'
         self.version_byte = int(parser['environment']['version-byte'])
         self.p2sh_version_byte = int(parser['environment']['p2sh-version-byte'])
+        self.secret_version_byte = int(parser['environment']['secret-version-byte'])
         self.dust_limit = int(parser['environment']['dust-limit'])
         self.default_fees = int(parser['environment']['default-fees'])
         self.cache_path = parser['cache']['path']
