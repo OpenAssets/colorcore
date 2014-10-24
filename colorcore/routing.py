@@ -53,8 +53,8 @@ class Program(object):
         class NetworkParams(bitcoin.core.CoreChainParams):
             BASE58_PREFIXES = {
                 'PUBKEY_ADDR':configuration.version_byte,
-                'SCRIPT_ADDR':configuration.p2sh_version_byte,
-                'SECRET_KEY': configuration.secret_version_byte
+                'SCRIPT_ADDR':configuration.p2sh_byte,
+                'SECRET_KEY': configuration.secret_byte
             }
 
         bitcoin.params = NetworkParams()
@@ -74,11 +74,13 @@ class Configuration():
     def __init__(self, parser):
         self.parser = parser
 
+        defaults = bitcoin.MainParams.BASE58_PREFIXES
+
         self.blockchain_provider = parser.get('general', 'blockchain-provider', fallback=None)
         self.disable_derived_addresses = parser.get('general', 'disable-derived-addresses', fallback='0') == '1'
-        self.version_byte = int(parser['environment']['version-byte'])
-        self.p2sh_version_byte = int(parser['environment']['p2sh-version-byte'])
-        self.secret_version_byte = int(parser['environment']['secret-version-byte'])
+        self.version_byte = int(parser.get('environment', 'version-byte', fallback=str(defaults['PUBKEY_ADDR'])))
+        self.p2sh_byte = int(parser.get('environment', 'p2sh-version-byte', fallback=str(defaults['SCRIPT_ADDR'])))
+        self.secret_byte = int(parser.get('environment', 'secret-version-byte', fallback=str(defaults['SECRET_KEY'])))
         self.dust_limit = int(parser['environment']['dust-limit'])
         self.default_fees = int(parser['environment']['default-fees'])
         self.cache_path = parser['cache']['path']

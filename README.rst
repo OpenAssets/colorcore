@@ -37,15 +37,16 @@ Make sure your have a Bitcoin Core server running, with the following arguments:
 
 All the configuration for Colorcore is done though the ``config.ini`` file::
 
+    [general]
+    # Defines what provider to use to retrieve information from the Blockchain
+    blockchain-provider=bitcoind
+
     [bitcoind]
     # Replace username, password and port with the username, password and port for Bitcoin Core
     # The default port is 8332 in MainNet and 18332 in TestNet
     rpcurl=http://<username>:<password>@localhost:<port>
 
     [environment]
-    # Use the following settings for MainNet
-    version-byte=0
-    p2sh-version-byte=5
     dust-limit=600
     default-fees=10000
 
@@ -126,6 +127,18 @@ Fees can be specified through the ``--fees`` argument, and the default amount fo
 Once you have colored coins on one address, make sure you use the ``sendbitcoin`` operation to send uncolored bitcoins from that address. If you use Bitcoin Core to send bitcoins, Bitcoin Core might spend your colored outputs as it is not aware of colored coins.
 
 If RPC is enabled, it is highly recommended to use a firewall to prevent access to Colorcore from an unauthorized remote machine.
+
+Blockchain Providers
+====================
+
+Colorcore supports several modes. The mode can be defined using the ``blockchain-provider`` setting under ``[general]``. The following values are supported:
+
+* ``bitcoind``: Colorcore connects only to a Bitcoin Core instance. For this to work, you need an operational Bitcoin Core wallet with JSON/RPC enabled and full transaction index.
+  The following setting must be configured: ``rpcurl`` under ``[bitcoind]``.
+* ``chain.com``: This is the lightweight mode. Colorcore connects to the `chain.com <https://chain.com/>`_ API. You must have a valid API Key and API secret. Using this mode, you will only be able to perform read operations such as ``getbalance`` and ``listunspent``. Any operation requiring to sign a transaction will fail. Bitcoin Core is not required when using this mode.
+  The following settings must be configured: ``base-url``, ``api-key-id`` and ``secret`` under ``[chain.com]``.
+* ``chain.com+bitcoind``: Colorcore connects to the chain.com API for obtaining blockchain data, but signs transactions using Bitcoin Core. All operations are supported.
+  The following settings must be configured: ``base-url``, ``api-key-id`` and ``secret`` under ``[chain.com]`` and ``rpcurl`` under ``[bitcoind]``.
 
 License
 =======
