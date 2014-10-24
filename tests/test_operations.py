@@ -46,37 +46,49 @@ class ControllerTests(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
 
-        address = collections.namedtuple('Address', ['address', 'derived', 'script', 'script_hex'])
+        class address(collections.namedtuple('AddressBase', ['address', 'script_hex'])):
+            def script(self):
+                return bitcoin.core.x(self.script_hex)
+
         self.addresses = [
             address(
                 address='moogjqrTWfjkyxLHk9ytzp147EfXVvqLEP',
-                derived='2N7GMwyG7pN4ZoByHX8eArHDHitUFqyuqSr',
-                script=bitcoin.core.x('76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'),
                 script_hex='76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'
             ),
             address(
                 address='mpLppfoBWbdF9Y7zeN9sJHcbMzQvAeRqMs',
-                derived='2NBpNRdo28FREjmeKD6Mrxj1NKm8Ufwh35v',
-                script=bitcoin.core.x('76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'),
                 script_hex='76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'
             ),
             address(
                 address='mr5im8BFT5ycERKHCgZoS7cRN5PewwTR4d',
-                derived=None,
-                script=bitcoin.core.x('76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'),
                 script_hex='76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'
             ),
             address(
                 address='mkN27mch2UtnRT28k8c5mQPYrW75cYdXUi',
-                derived=None,
-                script=bitcoin.core.x('76a914352813875577109204686b2e687f7ea046235aa588ac'),
                 script_hex='76a914352813875577109204686b2e687f7ea046235aa588ac'
             ),
             address(
                 address='msdzhXTdebVizEJnPrqGWFj5ruFRA8TLxF',
-                derived=None,
-                script=bitcoin.core.x('76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'),
                 script_hex='76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'
+            )
+        ]
+        self.derived = [
+            address(
+                address='2N7GMwyG7pN4ZoByHX8eArHDHitUFqyuqSr',
+                script_hex=None
+            ),
+            address(
+                address='2NBpNRdo28FREjmeKD6Mrxj1NKm8Ufwh35v',
+                script_hex=None
+            ),
+            None,
+            address(
+                address='',
+                script_hex='a9144794a990b714a12081df1506da6693da2dff842287'
+            ),
+            address(
+                address='',
+                script_hex='a91465f3d570bfa3f8538d9bad904edc1aa5bb07c22b87'
             )
         ]
 
@@ -100,9 +112,9 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_getbalance_success(self, *args, loop):
         self.setup_mocks(loop, [
-            (20, self.addresses[0].script, self.assets[0].binary, 30),
-            (50, self.addresses[1].script, self.assets[0].binary, 10),
-            (80, self.addresses[0].script, None, 0)
+            (20, self.addresses[0].script(), self.assets[0].binary, 30),
+            (50, self.addresses[1].script(), self.assets[0].binary, 10),
+            (80, self.addresses[0].script(), None, 0)
         ])
 
         target = self.create_controller()
@@ -114,13 +126,13 @@ class ControllerTests(unittest.TestCase):
                     'address': self.addresses[0].address,
                     'value': '0.00000100',
                     'assets': [{'asset_address': self.assets[0].address, 'quantity': '30'}],
-                    'derived_address': self.addresses[0].derived
+                    'derived_address': self.derived[0].address
                 },
                 {
                     'address': self.addresses[1].address,
                     'value': '0.00000050',
                     'assets': [{'asset_address': self.assets[0].address, 'quantity': '10'}],
-                    'derived_address': self.addresses[1].derived
+                    'derived_address': self.derived[1].address
                 }
             ],
             result)
@@ -130,9 +142,9 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_listunspent_success(self, *args, loop):
         self.setup_mocks(loop, [
-            (20, self.addresses[0].script, self.assets[0].binary, 30),
-            (50, self.addresses[1].script, self.assets[1].binary, 10),
-            (80, self.addresses[0].script, None, 0)
+            (20, self.addresses[0].script(), self.assets[0].binary, 30),
+            (50, self.addresses[1].script(), self.assets[1].binary, 10),
+            (80, self.addresses[0].script(), None, 0)
         ])
 
         target = self.create_controller()
@@ -242,8 +254,8 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_sendbitcoin_default_fees(self, *args, loop):
         self.setup_mocks(loop, [
-            (80, self.addresses[0].script, None, 0),
-            (50, self.addresses[0].script, None, 0)
+            (80, self.addresses[0].script(), None, 0),
+            (50, self.addresses[0].script(), None, 0)
         ])
 
         target = self.create_controller()
@@ -273,9 +285,9 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_invalid_fees(self, *args, loop):
         self.setup_mocks(loop, [
-            (80, self.addresses[0].script, None, 0),
-            (50, self.addresses[1].script, None, 0),
-            (50, self.addresses[0].script, None, 0)
+            (80, self.addresses[0].script(), None, 0),
+            (50, self.addresses[1].script(), None, 0),
+            (50, self.addresses[0].script(), None, 0)
         ])
 
         target = self.create_controller()
@@ -293,9 +305,9 @@ class ControllerTests(unittest.TestCase):
     @asyncio.coroutine
     def _setup_sendbitcoin_test(self, mode, format, loop):
         self.setup_mocks(loop, [
-            (20, self.addresses[0].script, self.assets[0].binary, 30),
-            (80, self.addresses[0].script, None, 0),
-            (50, self.addresses[0].script, None, 0)
+            (20, self.addresses[0].script(), self.assets[0].binary, 30),
+            (80, self.addresses[0].script(), None, 0),
+            (50, self.addresses[0].script(), None, 0)
         ])
 
         target = self.create_controller(format)
@@ -314,9 +326,9 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_sendasset_success(self, *args, loop):
         self.setup_mocks(loop, [
-            (10, self.addresses[0].script, self.assets[0].binary, 50),
-            (40, self.addresses[0].script, None, 0),
-            (10, self.addresses[0].script, self.assets[0].binary, 80)
+            (10, self.addresses[0].script(), self.assets[0].binary, 50),
+            (40, self.addresses[0].script(), None, 0),
+            (10, self.addresses[0].script(), self.assets[0].binary, 80)
         ])
 
         target = self.create_controller()
@@ -355,8 +367,8 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_issueasset_success(self, *args, loop):
         self.setup_mocks(loop, [
-            (5, self.addresses[0].script, None, 0),
-            (35, self.addresses[0].script, None, 0)
+            (5, self.addresses[0].script(), None, 0),
+            (35, self.addresses[0].script(), None, 0)
         ])
 
         target = self.create_controller()
@@ -392,8 +404,8 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_distribute_success(self, *args, loop):
         self.setup_mocks(loop, [
-            (36 + 10 + 15, self.addresses[0].script, None, 0),
-            (46 + 10 + 15, self.addresses[0].script, None, 0)
+            (36 + 10 + 15, self.addresses[0].script(), None, 0),
+            (46 + 10 + 15, self.addresses[0].script(), None, 0)
         ])
 
         self.set_get_transaction_mock(self._distribute_get_raw_transaction)
@@ -413,7 +425,7 @@ class ControllerTests(unittest.TestCase):
             'vin': [self.get_input(0, self.addresses[0])],
             'vout': [
                 # Asset issued
-                self.get_output(10, 0, self.addresses[3]),
+                self.get_output(10, 0, self.derived[3]),
                 # Marker output
                 self.get_marker_output(1, [1], b'metadata'),
                 # Forwarded funds
@@ -428,7 +440,7 @@ class ControllerTests(unittest.TestCase):
             'vin': [self.get_input(1, self.addresses[0])],
             'vout': [
                 # Asset issued
-                self.get_output(10, 0, self.addresses[4]),
+                self.get_output(10, 0, self.derived[4]),
                 # Marker output
                 self.get_marker_output(1, [2], b'metadata'),
                 # Forwarded funds
@@ -440,8 +452,8 @@ class ControllerTests(unittest.TestCase):
     @helpers.async_test
     def test_distribute_preview(self, *args, loop):
         self.setup_mocks(loop, [
-            (36 + 10 + 15, self.addresses[0].script, None, 0),
-            (46 + 10 + 15, self.addresses[0].script, None, 0)
+            (36 + 10 + 15, self.addresses[0].script(), None, 0),
+            (46 + 10 + 15, self.addresses[0].script(), None, 0)
         ])
 
         self.set_get_transaction_mock(self._distribute_get_raw_transaction)
@@ -489,7 +501,7 @@ class ControllerTests(unittest.TestCase):
         index = int(str(transaction_hash[0:1], 'utf-8'))
         return self.completed(bitcoin.core.CTransaction(
             vout=[
-                bitcoin.core.CTxOut(scriptPubKey=bitcoin.core.script.CScript(self.addresses[index + 3].script))
+                bitcoin.core.CTxOut(scriptPubKey=bitcoin.core.script.CScript(self.addresses[index + 3].script()))
             ]
         ))
 
