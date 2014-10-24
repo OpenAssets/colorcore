@@ -46,7 +46,7 @@ class Controller(object):
         self.tx_parser = tx_parser
         self.cache_factory = cache_factory
         self.event_loop = event_loop
-        self.convert = Convert(configuration.version_byte, configuration.p2sh_version_byte)
+        self.convert = Convert()
 
     @asyncio.coroutine
     def getbalance(self,
@@ -65,16 +65,16 @@ class Controller(object):
         for script, group in itertools.groupby(sorted_outputs, lambda output: output.script):
             script_outputs = list(group)
             total_value = self.convert.to_coin(sum([item.value for item in script_outputs]))
-            base58 = self.convert.script_to_base58(script)
-            derived = self.convert.get_derived_address(base58)
+
             group_details = {
-                'address': base58,
+                'address': self.convert.script_to_display_string(script),
                 'value': total_value,
                 'assets': []
             }
 
-            if derived is not None:
-                group_details['derived_address'] = derived
+            derived_address = self.convert.derive_script(script)
+            if derived_address is not None:
+                group_details['derived_address'] = str(derived_address)
 
             table.append(group_details)
 
@@ -107,7 +107,7 @@ class Controller(object):
             table.append({
                 'txid': bitcoin.core.b2lx(output.out_point.hash),
                 'vout': output.out_point.n,
-                'address': self.convert.script_to_base58(output.output.script),
+                'address': self.convert.script_to_display_string(output.output.script),
                 'script': bitcoin.core.b2x(output.output.script),
                 'amount': self.convert.to_coin(output.output.value),
                 'confirmations': output.confirmations,
@@ -130,16 +130,18 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending bitcoins from an address to another."""
+        from_address = self._as_p2pkh_address(address)
+        to_address = self._as_address(to)
+
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(address)
+        colored_outputs = yield from self._get_unspent_outputs(from_address)
 
         transfer_parameters = openassets.transactions.TransferParameters(
-            colored_outputs, self.convert.base58_to_script(to), self.convert.base58_to_script(address),
+            colored_outputs, to_address.to_scriptPubKey(), from_address.to_scriptPubKey(),
             self._as_int(amount))
         transaction = builder.transfer_bitcoin(transfer_parameters, self._get_fees(fees))
 
-        final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
-        return self.tx_parser(final_transaction)
+        return self.tx_parser((yield from self._process_transaction(transaction, from_address, colored_outputs, mode)))
 
     @asyncio.coroutine
     def sendasset(self,
@@ -153,19 +155,21 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending an asset from an address to another."""
+        from_address = self._as_p2pkh_address(address)
+        to_address = self._as_address(to)
+
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(address)
+        colored_outputs = yield from self._get_unspent_outputs(from_address)
 
         transfer_parameters = openassets.transactions.TransferParameters(
-            colored_outputs, self._get_derived_script(to), self._get_derived_script(address),
-            self._as_int(amount))
+            colored_outputs, self.convert.get_derived_address(to_address).to_scriptPubKey(),
+            self.convert.get_derived_address(from_address).to_scriptPubKey(), self._as_int(amount))
 
         transaction = builder.transfer_assets(
-            self.convert.base58_to_asset_address(asset), transfer_parameters, self.convert.base58_to_script(address),
+            self.convert.base58_to_asset_address(asset), transfer_parameters, from_address.to_scriptPubKey(),
             self._get_fees(fees))
 
-        final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
-        return self.tx_parser(final_transaction)
+        return self.tx_parser((yield from self._process_transaction(transaction, from_address, colored_outputs, mode)))
 
     @asyncio.coroutine
     def issueasset(self,
@@ -179,20 +183,22 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for issuing an asset."""
-        builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(address, exclude_derived=True)
-
         if to is None:
             to = address
 
+        from_address = self._as_p2pkh_address(address)
+        to_address = self._as_address(to)
+
+        builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
+        colored_outputs = yield from self._get_unspent_outputs(from_address, exclude_derived=True)
+
         issuance_parameters = openassets.transactions.TransferParameters(
-            colored_outputs, self._get_derived_script(to), self.convert.base58_to_script(address),
-            self._as_int(amount))
+            colored_outputs, self.convert.get_derived_address(to_address).to_scriptPubKey(),
+            from_address.to_scriptPubKey(), self._as_int(amount))
 
         transaction = builder.issue(issuance_parameters, bytes(metadata, encoding='utf-8'), self._get_fees(fees))
 
-        final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
-        return self.tx_parser(final_transaction)
+        return self.tx_parser((yield from self._process_transaction(transaction, from_address, colored_outputs, mode)))
 
     @asyncio.coroutine
     def distribute(self,
@@ -210,9 +216,11 @@ class Controller(object):
         to the sender newly issued assets, and send the bitcoins to the forward address. The number of issued coins
         sent back is proportional to the number of bitcoins sent, and configurable through the ratio argument.
         Because the asset issuance transaction is chained from the inbound transaction, double spend is impossible."""
+        from_address = self._as_p2pkh_address(address)
+        to_address = self._as_address(forward_address)
         decimal_price = self._as_decimal(price)
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(address, exclude_derived=True)
+        colored_outputs = yield from self._get_unspent_outputs(from_address, exclude_derived=True)
 
         transactions = []
         summary = []
@@ -221,12 +229,20 @@ class Controller(object):
             script = bytes(incoming_transaction.vout[0].scriptPubKey)
             collected, amount_issued, change = self._calculate_distribution(
                 output.output.value, decimal_price, self._get_fees(fees), self.configuration.dust_limit)
+
+            # Verify if the assets should be sent to the derived address
+            derived_address = self.convert.derive_script(script)
+            if derived_address is None:
+                derived_script = script
+            else:
+                derived_script = derived_address.to_scriptPubKey()
+
             if amount_issued > 0:
                 inputs = [bitcoin.core.CTxIn(output.out_point, output.output.script)]
                 outputs = [
-                    builder._get_colored_output(self._try_derive_script(script)),
+                    builder._get_colored_output(derived_script),
                     builder._get_marker_output([amount_issued], bytes(metadata, encoding='utf-8')),
-                    builder._get_uncolored_output(self.convert.base58_to_script(forward_address), collected)
+                    builder._get_uncolored_output(to_address.to_scriptPubKey(), collected)
                 ]
 
                 if change > 0:
@@ -236,7 +252,7 @@ class Controller(object):
 
                 transactions.append(transaction)
                 summary.append({
-                    'from': self.convert.script_to_base58(script),
+                    'from': self.convert.script_to_display_string(script),
                     'received': self.convert.to_coin(output.output.value) + " BTC",
                     'collected': self.convert.to_coin(collected) + " BTC",
                     'sent': str(amount_issued) + " Units",
@@ -248,8 +264,8 @@ class Controller(object):
         else:
             result = []
             for transaction in transactions:
-                final_transaction = yield from self._process_transaction(transaction, address, colored_outputs, mode)
-                result.append(self.tx_parser(final_transaction))
+                result.append(self.tx_parser((yield from self._process_transaction(
+                    transaction, from_address, colored_outputs, mode))))
 
             return result
 
@@ -266,6 +282,20 @@ class Controller(object):
         return collected, units_issued, effective_amount - collected
 
     # Private methods
+
+    @staticmethod
+    def _as_p2pkh_address(address):
+        try:
+            return bitcoin.wallet.P2PKHBitcoinAddress(address)
+        except (bitcoin.wallet.CBitcoinAddressError, ValueError):
+            raise colorcore.routing.ControllerError("The address {} is an invalid P2PKH address.".format(address))
+
+    @staticmethod
+    def _as_address(address):
+        try:
+            return bitcoin.wallet.CBitcoinAddress(address)
+        except bitcoin.wallet.CBitcoinAddressError:
+            raise colorcore.routing.ControllerError("The address {} is an invalid address.".format(address))
 
     @staticmethod
     def _as_int(value):
@@ -287,26 +317,6 @@ class Controller(object):
         else:
             return self._as_int(value)
 
-    def _try_derive_script(self, script):
-        try:
-            address = bitcoin.wallet.P2PKHBitcoinAddress.from_scriptPubKey(script)
-            return address.to_scriptPubKey().to_p2sh_scriptPubKey()
-        except bitcoin.wallet.CBitcoinAddressError:
-            return script
-
-    def _get_derived_script(self, address):
-        if self.configuration.disable_derived_addresses:
-            # Derived addresses are disabled, send the assets to the base address
-            return self.convert.base58_to_script(address)
-        else:
-            derived_address = self.convert.get_derived_address(address)
-            if derived_address is None:
-                # This address doesn't have a derived address, return itself
-                return self.convert.base58_to_script(address)
-            else:
-                # Return the derived address
-                return self.convert.base58_to_script(derived_address)
-
     @asyncio.coroutine
     def _get_unspent_outputs(self, address, exclude_derived=False, **kwargs):
         cache = self.cache_factory()
@@ -314,10 +324,13 @@ class Controller(object):
 
         if address is None:
             addresses = None
-        elif not self.configuration.disable_derived_addresses and not exclude_derived:
-            addresses = [address, self.convert.get_derived_address(address)]
+        elif not self.configuration.disable_derived_addresses \
+            and not exclude_derived \
+            and isinstance(address, bitcoin.wallet.P2PKHBitcoinAddress):
+            # Address derivation is enabled and the address can be derived
+            addresses = [str(address), str(self.convert.get_derived_address(address))]
         else:
-            addresses = [address]
+            addresses = [str(address)]
 
         unspent = yield from self.provider.list_unspent(addresses, **kwargs)
 
@@ -351,20 +364,19 @@ class Controller(object):
     @asyncio.coroutine
     def _sign_transaction(self, address, outputs, transaction):
         script_map = {(output.out_point.hash, output.out_point.n): output.output.script for output in outputs}
-        private_key = yield from self.provider.get_private_key(address)
+        private_key = yield from self.provider.get_private_key(str(address))
         public_key = bitcoin.core.script.CScriptOp.encode_op_pushdata(private_key.pub)
-        base_script = self.convert.base58_to_script(address)
-        derived_address = self.convert.get_derived_address(address)
-        derived_script = self.convert.base58_to_script(derived_address)
+        base_script = address.to_scriptPubKey()
+        derived_script = self.convert.get_derived_address(address).to_scriptPubKey()
 
         result = bitcoin.core.CMutableTransaction.from_tx(transaction)
         for i, input in enumerate(transaction.vin):
+            # Sign every input
             script = script_map[(input.prevout.hash, input.prevout.n)]
             if script in [base_script, derived_script]:
                 signed_hash = bitcoin.core.script.SignatureHash(
                     bitcoin.core.script.CScript(base_script), transaction, i, bitcoin.core.script.SIGHASH_ALL)
-                signature = private_key.sign(signed_hash)
-                signature += bytes([bitcoin.core.script.SIGHASH_ALL])
+                signature = private_key.sign(signed_hash) + bytes([bitcoin.core.script.SIGHASH_ALL])
 
                 input_script = bitcoin.core.script.CScriptOp.encode_op_pushdata(signature) + public_key
 
@@ -379,58 +391,84 @@ class Controller(object):
 class Convert(object):
     """Provides conversion helpers."""
 
-    def __init__(self, p2a_version_byte, p2sh_version_byte):
-        self.p2a_version_byte = p2a_version_byte
-        self.p2sh_version_byte = p2sh_version_byte
-
     @staticmethod
     def to_coin(satoshis):
         return '{0:.8f}'.format(decimal.Decimal(satoshis) / decimal.Decimal(bitcoin.core.COIN))
 
-    def base58_to_script(self, base58_address):
-        address = bitcoin.base58.CBase58Data(base58_address)
+    @staticmethod
+    def base58_to_asset_address(base58_address):
+        """
+        Parses a base58 asset address into its bytes representation.
 
-        if address.nVersion == self.p2a_version_byte:
-            return bytes([0x76, 0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address.to_bytes()) \
-                + bytes([0x88, 0xac])
-        elif address.nVersion == self.p2sh_version_byte:
-            return bytes([0xA9]) + bitcoin.core.script.CScriptOp.encode_op_pushdata(address.to_bytes()) + bytes([0x87])
-        else:
-            raise colorcore.routing.ControllerError("Invalid version byte.")
+        :param str base58_address: The base58 asset address.
+        :return: The byte representation of the asset address.
+        :rtype: bytes
+        """
+        try:
+            address = bitcoin.wallet.CBitcoinAddress(base58_address)
+        except (bitcoin.base58.Base58ChecksumError, bitcoin.wallet.CBitcoinAddressError):
+            raise colorcore.routing.ControllerError("Invalid asset address.")
 
-    def base58_to_asset_address(self, base58_address):
-        address = bitcoin.base58.CBase58Data(base58_address)
-        if address.nVersion != self.p2sh_version_byte:
-            raise colorcore.routing.ControllerError("Invalid version byte.")
+        if not isinstance(address, bitcoin.wallet.P2SHBitcoinAddress):
+            raise colorcore.routing.ControllerError("Invalid asset address.")
 
         return address.to_bytes()
 
-    def asset_address_to_base58(self, asset_address):
-        return str(bitcoin.base58.CBase58Data.from_bytes(asset_address, self.p2sh_version_byte))
+    @staticmethod
+    def asset_address_to_base58(asset_address):
+        """
+        Returns the base58 representation of an asset address.
 
-    def script_to_base58(self, script):
-        script_object = bitcoin.core.CScript(script)
+        :param bytes asset_address: The asset address.
+        :return: The base58 representation of the asset address.
+        :rtype: str
+        """
+        return str(bitcoin.wallet.P2SHBitcoinAddress.from_bytes(asset_address))
+
+    @staticmethod
+    def get_derived_address(address):
+        """
+        Returns the address where to send assets given a base address.
+
+        :param CBitcoinAddress address: The address to derive.
+        :return: The derived address.
+        :rtype: CBitcoinAddress
+        """
+        # Return the address unmodified if it is not a P2PKH address
+        if not isinstance(address, bitcoin.wallet.P2PKHBitcoinAddress):
+            return address
+
+        # Compute the redeem script for the derived address
+        derived_address_redeem_script = address.to_scriptPubKey()
+
+        script_hash = bitcoin.core.Hash160(derived_address_redeem_script)
+        return bitcoin.wallet.P2SHBitcoinAddress.from_bytes(script_hash)
+
+    @classmethod
+    def derive_script(cls, script):
+        """
+        Returns the derived address for a script if it can be derived, or None otherwise.
+
+        :param bytes script: The script to derive from.
+        :return: The derived address for a script if it can be derived, or None otherwise.
+        :rtype: CBitcoinAddress | None
+        """
         try:
-            opcodes = list(script_object.raw_iter())
-        except bitcoin.core.script.CScriptInvalidError:
-            return "Invalid script"
-
-        if len(opcodes) == 5 and opcodes[0][0] == 0x76 and opcodes[1][0] == 0xA9 \
-            and opcodes[3][0] == 0x88 and opcodes[4][0] == 0xac:
-            opcode, data, sop_idx = opcodes[2]
-            return str(bitcoin.base58.CBase58Data.from_bytes(data, self.p2a_version_byte))
-        elif len(opcodes) == 3 and opcodes[0][0] == 0xa9 and opcodes[2][0] == 0x87:
-            opcode, data, sop_idx = opcodes[1]
-            return str(bitcoin.base58.CBase58Data.from_bytes(data, self.p2sh_version_byte))
-
-        return "Unknown script"
-
-    def get_derived_address(self, base_address):
-        address = bitcoin.base58.CBase58Data(base_address)
-        if address.nVersion != self.p2a_version_byte:
+            address = bitcoin.wallet.P2PKHBitcoinAddress.from_scriptPubKey(script)
+            return cls.get_derived_address(address)
+        except bitcoin.wallet.CBitcoinAddressError:
             return None
 
-        script = self.base58_to_script(base_address)
-        script_hash = openassets.protocol.ColoringEngine.hash_script(script)
+    @staticmethod
+    def script_to_display_string(script):
+        """
+        Converts an output script to an address if possible, or a fallback string otherwise.
 
-        return str(bitcoin.base58.CBase58Data.from_bytes(script_hash, self.p2sh_version_byte))
+        :param bytes script: The script to convert
+        :return: The converted value.
+        :rtype: str
+        """
+        try:
+            return str(bitcoin.wallet.CBitcoinAddress.from_scriptPubKey(bitcoin.core.CScript(script)))
+        except bitcoin.wallet.CBitcoinAddressError:
+            return "Unknown script"
