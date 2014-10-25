@@ -55,8 +55,9 @@ class Controller(object):
         maxconf: "The maximum number of confirmations (inclusive)"='9999999'
     ):
         """Obtains the balance of the wallet or an address."""
+        from_address = self._as_p2pkh_address(address) if address is not None else None
         unspent_outputs = yield from self._get_unspent_outputs(
-            address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
+            from_address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
         colored_outputs = [output.output for output in unspent_outputs]
 
         sorted_outputs = sorted(colored_outputs, key=lambda output: output.script)
@@ -99,8 +100,9 @@ class Controller(object):
     ):
         """Returns an array of unspent transaction outputs augmented with the asset address and quantity of
         each output."""
+        from_address = self._as_p2pkh_address(address) if address is not None else None
         unspent_outputs = yield from self._get_unspent_outputs(
-            address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
+            from_address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
 
         table = []
         for output in unspent_outputs:
@@ -287,14 +289,14 @@ class Controller(object):
     def _as_p2pkh_address(address):
         try:
             return bitcoin.wallet.P2PKHBitcoinAddress(address)
-        except (bitcoin.wallet.CBitcoinAddressError, ValueError):
+        except (bitcoin.wallet.CBitcoinAddressError, ValueError, bitcoin.base58.Base58ChecksumError):
             raise colorcore.routing.ControllerError("The address {} is an invalid P2PKH address.".format(address))
 
     @staticmethod
     def _as_address(address):
         try:
             return bitcoin.wallet.CBitcoinAddress(address)
-        except bitcoin.wallet.CBitcoinAddressError:
+        except (bitcoin.wallet.CBitcoinAddressError, bitcoin.base58.Base58ChecksumError):
             raise colorcore.routing.ControllerError("The address {} is an invalid address.".format(address))
 
     @staticmethod

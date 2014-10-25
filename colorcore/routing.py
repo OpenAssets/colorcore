@@ -50,6 +50,10 @@ class Program(object):
 
         configuration = Configuration(parser)
 
+        if not configuration.disable_derived_addresses and configuration.blockchain_provider == 'bitcoind':
+            print("Warning: The 'bitcoind' mode doesn't have full support for dual-wallet. Please use the hybrid " +
+                  "mode ('blockchain-provider=chain.com+bitcoind') instead.")
+
         class NetworkParams(bitcoin.core.CoreChainParams):
             BASE58_PREFIXES = {
                 'PUBKEY_ADDR':configuration.version_byte,
@@ -170,7 +174,6 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
     def create_response(self, status, message):
         response = aiohttp.Response(self.writer, status, http_version=message.version)
         response.add_header('Content-Type', 'text/json')
-        response.send_headers()
         return response
 
     @asyncio.coroutine
@@ -180,7 +183,10 @@ class RpcServer(aiohttp.server.ServerHttpProtocol):
 
     @asyncio.coroutine
     def json_response(self, response, data):
-        response.write(bytes(json.dumps(data, indent=4, separators=(',', ': ')), 'utf-8'))
+        buffer = bytes(json.dumps(data, indent=4, separators=(',', ': ')), 'utf-8')
+        response.add_header('Content-Length', str(len(buffer)))
+        response.send_headers()
+        response.write(buffer)
         yield from response.write_eof()
 
 
