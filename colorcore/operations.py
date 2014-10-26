@@ -29,6 +29,7 @@ import bitcoin.core.serialize
 import bitcoin.core.script
 import bitcoin.rpc
 import bitcoin.wallet
+import colorcore.addresses
 import colorcore.routing
 import decimal
 import itertools
@@ -55,7 +56,7 @@ class Controller(object):
         maxconf: "The maximum number of confirmations (inclusive)"='9999999'
     ):
         """Obtains the balance of the wallet or an address."""
-        from_address = self._as_p2pkh_address(address) if address is not None else None
+        from_address = self._as_any_address(address) if address is not None else None
         unspent_outputs = yield from self._get_unspent_outputs(
             from_address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
         colored_outputs = [output.output for output in unspent_outputs]
@@ -68,10 +69,15 @@ class Controller(object):
             total_value = self.convert.to_coin(sum([item.value for item in script_outputs]))
 
             address = self.convert.script_to_address(script)
+            if address is not None:
+                oa_address = str(colorcore.addresses.Base58Address(
+                    address, address.nVersion, self.configuration.namespace))
+            else:
+                oa_address = None
 
             group_details = {
                 'address': self.convert.script_to_display_string(script),
-                'oa_address': str(address) if address is not None else None,
+                'oa_address': oa_address,
                 'value': total_value,
                 'assets': []
             }
@@ -99,7 +105,7 @@ class Controller(object):
     ):
         """Returns an array of unspent transaction outputs augmented with the asset address and quantity of
         each output."""
-        from_address = self._as_p2pkh_address(address) if address is not None else None
+        from_address = self._as_any_address(address) if address is not None else None
         unspent_outputs = yield from self._get_unspent_outputs(
             from_address, min_confirmations=self._as_int(minconf), max_confirmations=self._as_int(maxconf))
 
@@ -131,8 +137,8 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending bitcoins from an address to another."""
-        from_address = self._as_p2pkh_address(address)
-        to_address = self._as_address(to)
+        from_address = self._as_any_address(address)
+        to_address = self._as_any_address(to)
 
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = yield from self._get_unspent_outputs(from_address)
@@ -156,8 +162,8 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for sending an asset from an address to another."""
-        from_address = self._as_p2pkh_address(address)
-        to_address = self._as_address(to)
+        from_address = self._as_any_address(address)
+        to_address = self._as_openassets_address(to)
 
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = yield from self._get_unspent_outputs(from_address)
@@ -186,8 +192,8 @@ class Controller(object):
         if to is None:
             to = address
 
-        from_address = self._as_p2pkh_address(address)
-        to_address = self._as_address(to)
+        from_address = self._as_any_address(address)
+        to_address = self._as_openassets_address(to)
 
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = yield from self._get_unspent_outputs(from_address)
@@ -215,8 +221,8 @@ class Controller(object):
         to the sender newly issued assets, and send the bitcoins to the forward address. The number of issued coins
         sent back is proportional to the number of bitcoins sent, and configurable through the ratio argument.
         Because the asset issuance transaction is chained from the inbound transaction, double spend is impossible."""
-        from_address = self._as_p2pkh_address(address)
-        to_address = self._as_address(forward_address)
+        from_address = self._as_any_address(address)
+        to_address = self._as_any_address(forward_address)
         decimal_price = self._as_decimal(price)
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = yield from self._get_unspent_outputs(from_address)
@@ -275,16 +281,19 @@ class Controller(object):
     # Private methods
 
     @staticmethod
-    def _as_p2pkh_address(address):
+    def _as_any_address(address):
         try:
-            return bitcoin.wallet.P2PKHBitcoinAddress(address)
-        except (bitcoin.wallet.CBitcoinAddressError, ValueError, bitcoin.base58.Base58ChecksumError):
-            raise colorcore.routing.ControllerError("The address {} is an invalid P2PKH address.".format(address))
+            result = colorcore.addresses.Base58Address.from_string(address)
+            return result.address
+        except (bitcoin.wallet.CBitcoinAddressError, bitcoin.base58.Base58ChecksumError):
+            raise colorcore.routing.ControllerError("The address {} is an invalid address.".format(address))
 
-    @staticmethod
-    def _as_address(address):
+    def _as_openassets_address(self, address):
         try:
-            return bitcoin.wallet.CBitcoinAddress(address)
+            result = colorcore.addresses.Base58Address.from_string(address)
+            if result.namespace != self.configuration.namespace:
+                raise colorcore.routing.ControllerError("The address {} is not an asset address.".format(address))
+            return result.address
         except (bitcoin.wallet.CBitcoinAddressError, bitcoin.base58.Base58ChecksumError):
             raise colorcore.routing.ControllerError("The address {} is an invalid address.".format(address))
 
@@ -385,11 +394,11 @@ class Convert(object):
     @staticmethod
     def script_to_address(script):
         """
-        Converts an output script to an address if possible, or a fallback string otherwise.
+        Converts an output script to an address if possible, or None otherwise.
 
-        :param bytes script: The script to convert
+        :param bytes script: The script to convert.
         :return: The converted value.
-        :rtype: str
+        :rtype: CBitcoinAddress | None
         """
         try:
             return bitcoin.wallet.CBitcoinAddress.from_scriptPubKey(bitcoin.core.CScript(script))
@@ -408,11 +417,3 @@ class Convert(object):
         address = cls.script_to_address(script)
         return str(address) if address is not None else "Unknown script"
 
-    def get_openassets_address(self, address):
-        """
-        Returns the address that must be used for receiving assets.
-
-        :param CBitcoinAddress address: The address to convert.
-        :return: The Open Assets address.
-        """
-        return address

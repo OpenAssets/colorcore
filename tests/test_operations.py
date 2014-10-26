@@ -44,31 +44,37 @@ class ControllerTests(unittest.TestCase):
     private_key = bitcoin.wallet.CBitcoinSecret('cUgetboAcBhZyma6SvFHhefkw9nVnTpcpswePM5YRv2GqMjrqSgR')
 
     def setUp(self):
+        bitcoin.SelectParams('regtest')
         self.maxDiff = None
 
-        class address(collections.namedtuple('AddressBase', ['address', 'script_hex'])):
+        class address(collections.namedtuple('AddressBase', ['address', 'oa_address', 'script_hex'])):
             def script(self):
                 return bitcoin.core.x(self.script_hex)
 
         self.addresses = [
             address(
                 address='moogjqrTWfjkyxLHk9ytzp147EfXVvqLEP',
+                oa_address='bWymZz1fnz9dSrCVenn65efudSqqhUTD4Sd',
                 script_hex='76a9145aeb17b8888d04fb47d56ba54e727b88623665b488ac'
             ),
             address(
                 address='mpLppfoBWbdF9Y7zeN9sJHcbMzQvAeRqMs',
+                oa_address='bWzJi4qcWz5Ww1nHMgzG3x9XAhbb6E3XdGf',
                 script_hex='76a91460cebc294b5b4ef9c32dc26bb55fff48eeaea81788ac'
             ),
             address(
                 address='mr5im8BFT5ycERKHCgZoS7cRN5PewwTR4d',
+                oa_address='bX23c1HzavZsJ6fUeFJfz5yWzhgZpwpVGMr',
                 script_hex='76a91473e3b004e54cfad91c40b8fcc65b751c5662287888ac'
             ),
             address(
                 address='mkN27mch2UtnRT28k8c5mQPYrW75cYdXUi',
+                oa_address='bWvKuMwS2VxnUHhBVnkiGRGJ8C7HFXJ3JuJ',
                 script_hex='76a914352813875577109204686b2e687f7ea046235aa588ac'
             ),
             address(
                 address='msdzhXTdebVizEJnPrqGWFj5ruFRA8TLxF',
+                oa_address='',
                 script_hex='76a91484f66db046f3e285d6b80bfe195adc114413c1f988ac'
             )
         ]
@@ -105,13 +111,13 @@ class ControllerTests(unittest.TestCase):
         self.assert_response([
                 {
                     'address': self.addresses[0].address,
-                    'oa_address': self.addresses[0].address,
+                    'oa_address': self.addresses[0].oa_address,
                     'value': '0.00000100',
                     'assets': [{'asset_address': self.assets[0].address, 'quantity': '30'}]
                 },
                 {
                     'address': self.addresses[1].address,
-                    'oa_address': self.addresses[1].address,
+                    'oa_address': self.addresses[1].oa_address,
                     'value': '0.00000050',
                     'assets': [{'asset_address': self.assets[0].address, 'quantity': '10'}]
                 }
@@ -326,7 +332,7 @@ class ControllerTests(unittest.TestCase):
             address=self.addresses[0].address,
             asset=self.assets[0].address,
             amount='100',
-            to=self.addresses[2].address,
+            to=self.addresses[2].oa_address,
             fees='10',
             mode='unsigned')
 
@@ -351,6 +357,21 @@ class ControllerTests(unittest.TestCase):
         },
         result)
 
+    @helpers.async_test
+    def test_sendasset_invalid_address(self, *args, loop):
+        target = self.create_controller()
+
+        yield from helpers.assert_coroutine_raises(
+            self,
+            colorcore.routing.ControllerError,
+            target.sendasset,
+            address=self.addresses[0].address,
+            asset=self.assets[0].address,
+            amount='100',
+            to=self.addresses[2].address,
+            fees='10',
+            mode='unsigned')
+
     # issueasset
 
     @helpers.async_test
@@ -365,7 +386,7 @@ class ControllerTests(unittest.TestCase):
         result = yield from target.issueasset(
             address=self.addresses[0].address,
             amount='100',
-            to=self.addresses[2].address,
+            to=self.addresses[2].oa_address,
             metadata='metadata',
             fees='10',
             mode='unsigned')
@@ -387,6 +408,21 @@ class ControllerTests(unittest.TestCase):
             ]
         },
         result)
+
+    @helpers.async_test
+    def test_issueasset_invalid_address(self, *args, loop):
+        target = self.create_controller()
+
+        yield from helpers.assert_coroutine_raises(
+            self,
+            colorcore.routing.ControllerError,
+            target.issueasset,
+            address=self.addresses[0].address,
+            amount='100',
+            to=self.addresses[2].address,
+            metadata='metadata',
+            fees='10',
+            mode='unsigned')
 
     # distribute
 
@@ -528,6 +564,7 @@ class ControllerTests(unittest.TestCase):
         configuration.rpc_url = 'RPC URL'
         configuration.version_byte = 111
         configuration.p2sh_version_byte = 196
+        configuration.namespace = 19
         configuration.dust_limit = 10
         configuration.default_fees = 15
         configuration.create_blockchain_provider = unittest.mock.Mock(
