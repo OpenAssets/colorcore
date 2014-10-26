@@ -67,15 +67,14 @@ class Controller(object):
             script_outputs = list(group)
             total_value = self.convert.to_coin(sum([item.value for item in script_outputs]))
 
+            address = self.convert.script_to_address(script)
+
             group_details = {
                 'address': self.convert.script_to_display_string(script),
+                'oa_address': str(address) if address is not None else None,
                 'value': total_value,
                 'assets': []
             }
-
-            derived_address = self.convert.derive_script(script)
-            if derived_address is not None:
-                group_details['derived_address'] = str(derived_address)
 
             table.append(group_details)
 
@@ -143,7 +142,7 @@ class Controller(object):
             self._as_int(amount))
         transaction = builder.transfer_bitcoin(transfer_parameters, self._get_fees(fees))
 
-        return self.tx_parser((yield from self._process_transaction(transaction, from_address, colored_outputs, mode)))
+        return self.tx_parser((yield from self._process_transaction(transaction, mode)))
 
     @asyncio.coroutine
     def sendasset(self,
@@ -164,14 +163,13 @@ class Controller(object):
         colored_outputs = yield from self._get_unspent_outputs(from_address)
 
         transfer_parameters = openassets.transactions.TransferParameters(
-            colored_outputs, self.convert.get_derived_address(to_address).to_scriptPubKey(),
-            self.convert.get_derived_address(from_address).to_scriptPubKey(), self._as_int(amount))
+            colored_outputs, to_address.to_scriptPubKey(), from_address.to_scriptPubKey(), self._as_int(amount))
 
         transaction = builder.transfer_assets(
             self.convert.base58_to_asset_address(asset), transfer_parameters, from_address.to_scriptPubKey(),
             self._get_fees(fees))
 
-        return self.tx_parser((yield from self._process_transaction(transaction, from_address, colored_outputs, mode)))
+        return self.tx_parser((yield from self._process_transaction(transaction, mode)))
 
     @asyncio.coroutine
     def issueasset(self,
@@ -192,15 +190,14 @@ class Controller(object):
         to_address = self._as_address(to)
 
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(from_address, exclude_derived=True)
+        colored_outputs = yield from self._get_unspent_outputs(from_address)
 
         issuance_parameters = openassets.transactions.TransferParameters(
-            colored_outputs, self.convert.get_derived_address(to_address).to_scriptPubKey(),
-            from_address.to_scriptPubKey(), self._as_int(amount))
+            colored_outputs, to_address.to_scriptPubKey(), from_address.to_scriptPubKey(), self._as_int(amount))
 
         transaction = builder.issue(issuance_parameters, bytes(metadata, encoding='utf-8'), self._get_fees(fees))
 
-        return self.tx_parser((yield from self._process_transaction(transaction, from_address, colored_outputs, mode)))
+        return self.tx_parser((yield from self._process_transaction(transaction, mode)))
 
     @asyncio.coroutine
     def distribute(self,
@@ -222,7 +219,7 @@ class Controller(object):
         to_address = self._as_address(forward_address)
         decimal_price = self._as_decimal(price)
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
-        colored_outputs = yield from self._get_unspent_outputs(from_address, exclude_derived=True)
+        colored_outputs = yield from self._get_unspent_outputs(from_address)
 
         transactions = []
         summary = []
@@ -232,17 +229,10 @@ class Controller(object):
             collected, amount_issued, change = self._calculate_distribution(
                 output.output.value, decimal_price, self._get_fees(fees), self.configuration.dust_limit)
 
-            # Verify if the assets should be sent to the derived address
-            derived_address = self.convert.derive_script(script)
-            if derived_address is None:
-                derived_script = script
-            else:
-                derived_script = derived_address.to_scriptPubKey()
-
             if amount_issued > 0:
                 inputs = [bitcoin.core.CTxIn(output.out_point, output.output.script)]
                 outputs = [
-                    builder._get_colored_output(derived_script),
+                    builder._get_colored_output(script),
                     builder._get_marker_output([amount_issued], bytes(metadata, encoding='utf-8')),
                     builder._get_uncolored_output(to_address.to_scriptPubKey(), collected)
                 ]
@@ -266,8 +256,7 @@ class Controller(object):
         else:
             result = []
             for transaction in transactions:
-                result.append(self.tx_parser((yield from self._process_transaction(
-                    transaction, from_address, colored_outputs, mode))))
+                result.append(self.tx_parser((yield from self._process_transaction(transaction, mode))))
 
             return result
 
@@ -320,21 +309,11 @@ class Controller(object):
             return self._as_int(value)
 
     @asyncio.coroutine
-    def _get_unspent_outputs(self, address, exclude_derived=False, **kwargs):
+    def _get_unspent_outputs(self, address, **kwargs):
         cache = self.cache_factory()
         engine = openassets.protocol.ColoringEngine(self.provider.get_transaction, cache, self.event_loop)
 
-        if address is None:
-            addresses = None
-        elif not self.configuration.disable_derived_addresses \
-            and not exclude_derived \
-            and isinstance(address, bitcoin.wallet.P2PKHBitcoinAddress):
-            # Address derivation is enabled and the address can be derived
-            addresses = [str(address), str(self.convert.get_derived_address(address))]
-        else:
-            addresses = [str(address)]
-
-        unspent = yield from self.provider.list_unspent(addresses, **kwargs)
+        unspent = yield from self.provider.list_unspent(None if address is None else [str(address)], **kwargs)
 
         result = []
         for item in unspent:
@@ -349,45 +328,21 @@ class Controller(object):
         return result
 
     @asyncio.coroutine
-    def _process_transaction(self, transaction, address, outputs, mode):
+    def _process_transaction(self, transaction, mode):
         if mode == 'broadcast' or mode == 'signed':
             # Sign the transaction
-            signed_transaction = yield from self._sign_transaction(address, outputs, transaction)
+            signed_transaction = yield from self.provider.sign_transaction(transaction)
+            if not signed_transaction['complete']:
+                raise colorcore.routing.ControllerError("Could not sign the transaction.")
 
             if mode == 'broadcast':
-                result = yield from self.provider.send_transaction(signed_transaction)
+                result = yield from self.provider.send_transaction(signed_transaction['tx'])
                 return bitcoin.core.b2lx(result)
             else:
-                return signed_transaction
+                return signed_transaction['tx']
         else:
             # Return the transaction in raw format as a hex string
             return transaction
-
-    @asyncio.coroutine
-    def _sign_transaction(self, address, outputs, transaction):
-        script_map = {(output.out_point.hash, output.out_point.n): output.output.script for output in outputs}
-        private_key = yield from self.provider.get_private_key(str(address))
-        public_key = bitcoin.core.script.CScriptOp.encode_op_pushdata(private_key.pub)
-        base_script = address.to_scriptPubKey()
-        derived_script = self.convert.get_derived_address(address).to_scriptPubKey()
-
-        result = bitcoin.core.CMutableTransaction.from_tx(transaction)
-        for i, input in enumerate(transaction.vin):
-            # Sign every input
-            script = script_map[(input.prevout.hash, input.prevout.n)]
-            if script in [base_script, derived_script]:
-                signed_hash = bitcoin.core.script.SignatureHash(
-                    bitcoin.core.script.CScript(base_script), transaction, i, bitcoin.core.script.SIGHASH_ALL)
-                signature = private_key.sign(signed_hash) + bytes([bitcoin.core.script.SIGHASH_ALL])
-
-                input_script = bitcoin.core.script.CScriptOp.encode_op_pushdata(signature) + public_key
-
-                if script == derived_script:
-                    input_script += bitcoin.core.script.CScriptOp.encode_op_pushdata(base_script)
-
-                result.vin[i].scriptSig = bitcoin.core.script.CScript(input_script)
-
-        return result
 
 
 class Convert(object):
@@ -428,41 +383,7 @@ class Convert(object):
         return str(bitcoin.wallet.P2SHBitcoinAddress.from_bytes(asset_address))
 
     @staticmethod
-    def get_derived_address(address):
-        """
-        Returns the address where to send assets given a base address.
-
-        :param CBitcoinAddress address: The address to derive.
-        :return: The derived address.
-        :rtype: CBitcoinAddress
-        """
-        # Return the address unmodified if it is not a P2PKH address
-        if not isinstance(address, bitcoin.wallet.P2PKHBitcoinAddress):
-            return address
-
-        # Compute the redeem script for the derived address
-        derived_address_redeem_script = address.to_scriptPubKey()
-
-        script_hash = bitcoin.core.Hash160(derived_address_redeem_script)
-        return bitcoin.wallet.P2SHBitcoinAddress.from_bytes(script_hash)
-
-    @classmethod
-    def derive_script(cls, script):
-        """
-        Returns the derived address for a script if it can be derived, or None otherwise.
-
-        :param bytes script: The script to derive from.
-        :return: The derived address for a script if it can be derived, or None otherwise.
-        :rtype: CBitcoinAddress | None
-        """
-        try:
-            address = bitcoin.wallet.P2PKHBitcoinAddress.from_scriptPubKey(script)
-            return cls.get_derived_address(address)
-        except bitcoin.wallet.CBitcoinAddressError:
-            return None
-
-    @staticmethod
-    def script_to_display_string(script):
+    def script_to_address(script):
         """
         Converts an output script to an address if possible, or a fallback string otherwise.
 
@@ -471,6 +392,27 @@ class Convert(object):
         :rtype: str
         """
         try:
-            return str(bitcoin.wallet.CBitcoinAddress.from_scriptPubKey(bitcoin.core.CScript(script)))
+            return bitcoin.wallet.CBitcoinAddress.from_scriptPubKey(bitcoin.core.CScript(script))
         except bitcoin.wallet.CBitcoinAddressError:
-            return "Unknown script"
+            return None
+
+    @classmethod
+    def script_to_display_string(cls, script):
+        """
+        Converts an output script to an address if possible, or a fallback string otherwise.
+
+        :param bytes script: The script to convert
+        :return: The converted value.
+        :rtype: str
+        """
+        address = cls.script_to_address(script)
+        return str(address) if address is not None else "Unknown script"
+
+    def get_openassets_address(self, address):
+        """
+        Returns the address that must be used for receiving assets.
+
+        :param CBitcoinAddress address: The address to convert.
+        :return: The Open Assets address.
+        """
+        return address

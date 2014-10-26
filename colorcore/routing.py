@@ -50,16 +50,8 @@ class Program(object):
 
         configuration = Configuration(parser)
 
-        if not configuration.disable_derived_addresses and configuration.blockchain_provider == 'bitcoind':
-            print("Warning: The 'bitcoind' mode doesn't have full support for dual-wallet. Please use the hybrid " +
-                  "mode ('blockchain-provider=chain.com+bitcoind') instead.")
-
         class NetworkParams(bitcoin.core.CoreChainParams):
-            BASE58_PREFIXES = {
-                'PUBKEY_ADDR':configuration.version_byte,
-                'SCRIPT_ADDR':configuration.p2sh_byte,
-                'SECRET_KEY': configuration.secret_byte
-            }
+            BASE58_PREFIXES = {'PUBKEY_ADDR':configuration.version_byte, 'SCRIPT_ADDR':configuration.p2sh_byte}
 
         bitcoin.params = NetworkParams()
         router = Router(
@@ -81,10 +73,8 @@ class Configuration():
         defaults = bitcoin.MainParams.BASE58_PREFIXES
 
         self.blockchain_provider = parser.get('general', 'blockchain-provider', fallback=None)
-        self.disable_derived_addresses = parser.get('general', 'disable-derived-addresses', fallback='0') == '1'
         self.version_byte = int(parser.get('environment', 'version-byte', fallback=str(defaults['PUBKEY_ADDR'])))
         self.p2sh_byte = int(parser.get('environment', 'p2sh-version-byte', fallback=str(defaults['SCRIPT_ADDR'])))
-        self.secret_byte = int(parser.get('environment', 'secret-version-byte', fallback=str(defaults['SECRET_KEY'])))
         self.dust_limit = int(parser['environment']['dust-limit'])
         self.default_fees = int(parser['environment']['default-fees'])
         self.cache_path = parser['cache']['path']
