@@ -278,6 +278,34 @@ class ControllerTests(unittest.TestCase):
         result)
 
     @helpers.async_test
+    def test_sendbitcoin_to_oa_address(self, *args, loop):
+        self.setup_mocks(loop, [
+            (80, self.addresses[0].script(), None, 0)
+        ])
+
+        target = self.create_controller()
+
+        result = yield from target.sendbitcoin(
+            address=self.addresses[0].address,
+            amount='70',
+            to=self.addresses[2].oa_address,
+            mode='unsigned',
+            fees=10)
+
+        self.assert_response({
+            'version': 1,
+            'locktime': 0,
+            'vin': [
+                self.get_input(0, self.addresses[0])
+            ],
+            'vout': [
+                # Bitcoins sent
+                self.get_output(70, 0, self.addresses[2])
+            ]
+        },
+        result)
+
+    @helpers.async_test
     def test_invalid_fees(self, *args, loop):
         self.setup_mocks(loop, [
             (80, self.addresses[0].script(), None, 0),
