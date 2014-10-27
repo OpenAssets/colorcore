@@ -10,12 +10,10 @@ Use `Coinprism <https://www.coinprism.com>`_ for a web-based and user-friendly c
 Requirements
 ============
 
-The following items are required for using Colorcore:
+The following items are required to run Colorcore in the default mode:
 
 * `Python 3.4 <https://www.python.org/downloads/>`_
-* The `openassets <https://github.com/openassets/openassets>`_ package
-* The `python-bitcoinlib <https://github.com/petertodd/python-bitcoinlib>`_ package
-* The `aiohttp <https://github.com/KeepSafe/aiohttp>`_ package
+* The following Python packages: `openassets <https://github.com/openassets/openassets>`_, `python-bitcoinlib <https://github.com/petertodd/python-bitcoinlib>`_, `aiohttp <https://github.com/KeepSafe/aiohttp>`_
 * An operational Bitcoin Core wallet with JSON/RPC enabled and full transaction index
 
 Installation

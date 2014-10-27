@@ -34,19 +34,31 @@ class Base58AddressTests(unittest.TestCase):
     def setUp(self):
         bitcoin.SelectParams('mainnet')
 
-    def test_new_no_namespace(self):
+    def test_from_string_no_namespace(self):
         address = colorcore.addresses.Base58Address.from_string('16UwLL9Risc3QfPqBUvKofHmBQ7wMtjvM')
 
         self.assertEqual(0, address.address.nVersion)
         self.assertEqual(None, address.namespace)
         self.assertEqual(bitcoin.core.x('010966776006953D5567439E5E39F86A0D273BEE'), address.to_bytes())
 
-    def test_new_with_namespace(self):
+    def test_from_string_with_namespace(self):
         address = colorcore.addresses.Base58Address.from_string('akB4NBW9UuCmHuepksob6yfZs6naHtRCPNy')
 
         self.assertEqual(0, address.address.nVersion)
         self.assertEqual(19, address.namespace)
         self.assertEqual(bitcoin.core.x('010966776006953D5567439E5E39F86A0D273BEE'), address.to_bytes())
+
+    def test_from_string_invalid_length(self):
+        self.assertRaises(
+            ValueError,
+            colorcore.addresses.Base58Address.from_string,
+            '5Hwgr3u458GLafKBgxtssHSPqJnYoGrSzgQsPwLFhLNYskDPyyA')
+
+    def test_from_string_invalid_checksum(self):
+        self.assertRaises(
+            bitcoin.base58.Base58ChecksumError,
+            colorcore.addresses.Base58Address.from_string,
+            'akB4NBW9UuCmHuepksob6yfZs6naHtRCPNz')
 
     def test_from_bytes_invalid_value(self):
         self.assertRaises(
@@ -66,18 +78,6 @@ class Base58AddressTests(unittest.TestCase):
             colorcore.addresses.Base58Address,
             bitcoin.core.x('010966776006953D5567439E5E39F86A0D273BEEFF'),
             1, 1)
-
-    def test_new_invalid_length(self):
-        self.assertRaises(
-            ValueError,
-            colorcore.addresses.Base58Address.from_string,
-            '5Hwgr3u458GLafKBgxtssHSPqJnYoGrSzgQsPwLFhLNYskDPyyA')
-
-    def test_new_invalid_checksum(self):
-        self.assertRaises(
-            bitcoin.base58.Base58ChecksumError,
-            colorcore.addresses.Base58Address.from_string,
-            'akB4NBW9UuCmHuepksob6yfZs6naHtRCPNz')
 
     def test_str_no_namespace(self):
         address = colorcore.addresses.Base58Address.from_string('16UwLL9Risc3QfPqBUvKofHmBQ7wMtjvM')

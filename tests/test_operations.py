@@ -40,9 +40,6 @@ import unittest.mock
 
 @unittest.mock.patch('openassets.protocol.ColoringEngine.get_output', autospec=True)
 class ControllerTests(unittest.TestCase):
-    bitcoin.SelectParams('regtest')
-    private_key = bitcoin.wallet.CBitcoinSecret('cUgetboAcBhZyma6SvFHhefkw9nVnTpcpswePM5YRv2GqMjrqSgR')
-
     def setUp(self):
         bitcoin.SelectParams('regtest')
         self.maxDiff = None
