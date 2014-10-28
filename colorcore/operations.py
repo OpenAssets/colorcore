@@ -189,11 +189,12 @@ class Controller(object):
             'unsigned' for getting the raw unsigned transaction without broadcasting"""='broadcast'
     ):
         """Creates a transaction for issuing an asset."""
-        if to is None:
-            to = address
-
         from_address = self._as_any_address(address)
-        to_address = self._as_openassets_address(to)
+
+        if to is None:
+            to_address = self._as_any_address(from_address)
+        else:
+            to_address = self._as_openassets_address(to)
 
         builder = openassets.transactions.TransactionBuilder(self.configuration.dust_limit)
         colored_outputs = yield from self._get_unspent_outputs(from_address)
