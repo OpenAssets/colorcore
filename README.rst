@@ -70,7 +70,7 @@ All the commands are documented. Use the following command to show the documenta
 The currently supported commands are the following:
 
 * **getbalance**: Returns the balance in both bitcoin and colored coin assets for all of the addresses available in your Bitcoin Core wallet.
-* **listunspent**: Returns an array of unspent transaction outputs, augmented with the asset address and quantity of each output.
+* **listunspent**: Returns an array of unspent transaction outputs, augmented with the asset ID and quantity of each output.
 * **sendbitcoin**: Creates a transaction for sending bitcoins from an address to another.
 * **sendasset**: Creates a transaction for sending an asset from an address to another.
 * **issueasset**: Creates a transaction for issuing an asset.
