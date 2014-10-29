@@ -47,7 +47,7 @@ class SqliteCache(openassets.protocol.OutputCache):
                   OutputIndex INT,
                   Value BIGINT,
                   Script BLOB,
-                  AssetAddress BLOB,
+                  AssetID BLOB,
                   AssetQuantity INT,
                   OutputType TINYINT,
                   PRIMARY KEY (TransactionHash, OutputIndex))
@@ -66,7 +66,7 @@ class SqliteCache(openassets.protocol.OutputCache):
         """
         with contextlib.closing(self.connection.cursor()) as cursor:
             cursor.execute("""
-                  SELECT  Value, Script, AssetAddress, AssetQuantity, OutputType
+                  SELECT  Value, Script, AssetID, AssetQuantity, OutputType
                   FROM    Outputs
                   WHERE   TransactionHash = ? AND OutputIndex = ?
                 """,
@@ -97,7 +97,7 @@ class SqliteCache(openassets.protocol.OutputCache):
         with contextlib.closing(self.connection.cursor()) as cursor:
             cursor.execute("""
                   INSERT OR IGNORE INTO Outputs
-                    (TransactionHash, OutputIndex, Value, Script, AssetAddress, AssetQuantity, OutputType)
+                    (TransactionHash, OutputIndex, Value, Script, AssetID, AssetQuantity, OutputType)
                   VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -105,7 +105,7 @@ class SqliteCache(openassets.protocol.OutputCache):
                     output_index,
                     output.value,
                     bytes(output.script),
-                    output.asset_address,
+                    output.asset_id,
                     output.asset_quantity,
                     output.output_type.value
                 ))

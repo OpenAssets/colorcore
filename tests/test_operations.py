@@ -79,12 +79,12 @@ class ControllerTests(unittest.TestCase):
         asset = collections.namedtuple('Asset', ['address', 'binary'])
         self.assets = [
             asset(
-                address='qhTKTV1YV6VBaRx',
-                binary=b'asset1'
+                address='oMMUGpTWHYer3BRScvKrxjkw7jeJafVW4D',
+                binary=b'1' * 20
             ),
             asset(
-                address='qhTKTV1YVE1kJfp',
-                binary=b'asset2'
+                address='oMSn9mJFLfWzRf3QpXSzK6Ft7RZav1bmfx',
+                binary=b'2' * 20
             )
         ]
 
@@ -110,13 +110,13 @@ class ControllerTests(unittest.TestCase):
                     'address': self.addresses[0].address,
                     'oa_address': self.addresses[0].oa_address,
                     'value': '0.00000100',
-                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '30'}]
+                    'assets': [{'asset_id': self.assets[0].address, 'quantity': '30'}]
                 },
                 {
                     'address': self.addresses[1].address,
                     'oa_address': self.addresses[1].oa_address,
                     'value': '0.00000050',
-                    'assets': [{'asset_address': self.assets[0].address, 'quantity': '10'}]
+                    'assets': [{'asset_id': self.assets[0].address, 'quantity': '10'}]
                 }
             ],
             result)
@@ -143,7 +143,7 @@ class ControllerTests(unittest.TestCase):
                     'script': self.addresses[0].script_hex,
                     'amount': '0.00000020',
                     'confirmations': 0,
-                    'asset_address': self.assets[0].address,
+                    'asset_id': self.assets[0].address,
                     'asset_quantity': '30'
                 },
                 {
@@ -153,7 +153,7 @@ class ControllerTests(unittest.TestCase):
                     'script': self.addresses[1].script_hex,
                     'amount': '0.00000050',
                     'confirmations': 1,
-                    'asset_address': self.assets[1].address,
+                    'asset_id': self.assets[1].address,
                     'asset_quantity': '10'
                 },
                 {
@@ -163,7 +163,7 @@ class ControllerTests(unittest.TestCase):
                     'script': self.addresses[0].script_hex,
                     'amount': '0.00000080',
                     'confirmations': 2,
-                    'asset_address': None,
+                    'asset_id': None,
                     'asset_quantity': '0'
                 }
             ],
@@ -589,6 +589,7 @@ class ControllerTests(unittest.TestCase):
         configuration.rpc_url = 'RPC URL'
         configuration.version_byte = 111
         configuration.p2sh_version_byte = 196
+        configuration.asset_byte = 115
         configuration.namespace = 19
         configuration.dust_limit = 10
         configuration.default_fees = 15
@@ -651,20 +652,20 @@ class ConvertTests(unittest.TestCase):
         bitcoin.SelectParams('mainnet')
 
     def test_base58_to_asset_address_success(self):
-         result = colorcore.operations.Convert.base58_to_asset_address('36hBrMeUfevFPZdY2iYSHVaP9jdLd9Np4R')
+         result = self.create_converter().base58_to_asset_id('ALn3aK1fSuG27N96UGYB1kUYUpGKRhBuBC')
 
          self.assertEqual(bitcoin.core.x('36e0ea8e93eaa0285d641305f4c81e563aa570a2'), result)
 
     def test_base58_to_asset_address_invalid_version(self):
          self.assertRaises(
              colorcore.routing.ControllerError,
-             colorcore.operations.Convert.base58_to_asset_address,
+             self.create_converter().base58_to_asset_id,
              '1AaaBxiLVzo1xZSFpAw3Zm9YBYAYQgQuuU')
 
     def test_base58_to_asset_address_invalid_address(self):
          self.assertRaises(
              colorcore.routing.ControllerError,
-             colorcore.operations.Convert.base58_to_asset_address,
+             self.create_converter().base58_to_asset_id,
              'abc')
 
     def test_script_to_display_string(self):
@@ -679,9 +680,13 @@ class ConvertTests(unittest.TestCase):
         self.assertEqual('Unknown script', result)
 
     def test_asset_address_to_base58(self):
-         target = colorcore.operations.Convert()
+         target = self.create_converter()
 
-         result = target.asset_address_to_base58(
+         result = target.asset_id_to_base58(
              bitcoin.core.x('36e0ea8e93eaa0285d641305f4c81e563aa570a2'))
 
-         self.assertEqual('36hBrMeUfevFPZdY2iYSHVaP9jdLd9Np4R', result)
+         self.assertEqual('ALn3aK1fSuG27N96UGYB1kUYUpGKRhBuBC', result)
+
+    @staticmethod
+    def create_converter():
+        return colorcore.operations.Convert(23)

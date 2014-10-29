@@ -75,6 +75,7 @@ class Configuration():
         self.blockchain_provider = parser.get('general', 'blockchain-provider', fallback=None)
         self.version_byte = int(parser.get('environment', 'version-byte', fallback=str(defaults['PUBKEY_ADDR'])))
         self.p2sh_byte = int(parser.get('environment', 'p2sh-version-byte', fallback=str(defaults['SCRIPT_ADDR'])))
+        self.asset_byte = int(parser.get('environment', 'asset-version-byte', fallback='23'))
         self.namespace = int(parser.get('environment', 'oa-namespace', fallback='19'))
         self.dust_limit = int(parser['environment']['dust-limit'])
         self.default_fees = int(parser['environment']['default-fees'])

@@ -47,7 +47,7 @@ class Controller(object):
         self.tx_parser = tx_parser
         self.cache_factory = cache_factory
         self.event_loop = event_loop
-        self.convert = Convert()
+        self.convert = Convert(configuration.asset_byte)
 
     @asyncio.coroutine
     def getbalance(self,
@@ -85,13 +85,13 @@ class Controller(object):
             table.append(group_details)
 
             sorted_script_outputs = sorted(
-                [item for item in script_outputs if item.asset_address],
-                key=lambda output: output.asset_address)
+                [item for item in script_outputs if item.asset_id],
+                key=lambda output: output.asset_id)
 
-            for asset_address, outputs in itertools.groupby(sorted_script_outputs, lambda output: output.asset_address):
+            for asset_id, outputs in itertools.groupby(sorted_script_outputs, lambda output: output.asset_id):
                 total_quantity = sum([item.asset_quantity for item in outputs])
                 group_details['assets'].append({
-                    'asset_address': self.convert.asset_address_to_base58(asset_address),
+                    'asset_id': self.convert.asset_id_to_base58(asset_id),
                     'quantity': str(total_quantity)
                 })
 
@@ -103,7 +103,7 @@ class Controller(object):
         minconf: "The minimum number of confirmations (inclusive)"='1',
         maxconf: "The maximum number of confirmations (inclusive)"='9999999'
     ):
-        """Returns an array of unspent transaction outputs augmented with the asset address and quantity of
+        """Returns an array of unspent transaction outputs augmented with the asset ID and quantity of
         each output."""
         from_address = self._as_any_address(address) if address is not None else None
         unspent_outputs = yield from self._get_unspent_outputs(
@@ -118,9 +118,9 @@ class Controller(object):
                 'script': bitcoin.core.b2x(output.output.script),
                 'amount': self.convert.to_coin(output.output.value),
                 'confirmations': output.confirmations,
-                'asset_address':
-                    None if output.output.asset_address is None
-                    else self.convert.asset_address_to_base58(output.output.asset_address),
+                'asset_id':
+                    None if output.output.asset_id is None
+                    else self.convert.asset_id_to_base58(output.output.asset_id),
                 'asset_quantity': str(output.output.asset_quantity)
             })
 
@@ -153,7 +153,7 @@ class Controller(object):
     @asyncio.coroutine
     def sendasset(self,
         address: "The address to send the asset from",
-        asset: "The asset address identifying the asset to send",
+        asset: "The asset ID identifying the asset to send",
         amount: "The amount of asset units to send",
         to: "The address to send the asset to",
         fees: "The fess in satoshis for the transaction"=None,
@@ -172,7 +172,7 @@ class Controller(object):
             colored_outputs, to_address.to_scriptPubKey(), from_address.to_scriptPubKey(), self._as_int(amount))
 
         transaction = builder.transfer_assets(
-            self.convert.base58_to_asset_address(asset), transfer_parameters, from_address.to_scriptPubKey(),
+            self.convert.base58_to_asset_id(asset), transfer_parameters, from_address.to_scriptPubKey(),
             self._get_fees(fees))
 
         return self.tx_parser((yield from self._process_transaction(transaction, mode)))
@@ -358,39 +358,40 @@ class Controller(object):
 class Convert(object):
     """Provides conversion helpers."""
 
+    def __init__(self, asset_byte):
+        self.asset_byte = asset_byte
+
     @staticmethod
     def to_coin(satoshis):
         return '{0:.8f}'.format(decimal.Decimal(satoshis) / decimal.Decimal(bitcoin.core.COIN))
 
-    @staticmethod
-    def base58_to_asset_address(base58_address):
+    def base58_to_asset_id(self, base58_address):
         """
-        Parses a base58 asset address into its bytes representation.
+        Parses a base58 asset ID into its bytes representation.
 
         :param str base58_address: The base58 asset address.
-        :return: The byte representation of the asset address.
+        :return: The byte representation of the asset ID.
         :rtype: bytes
         """
         try:
-            address = bitcoin.wallet.CBitcoinAddress(base58_address)
-        except (bitcoin.base58.Base58ChecksumError, bitcoin.wallet.CBitcoinAddressError):
-            raise colorcore.routing.ControllerError("Invalid asset address.")
+            address = bitcoin.base58.CBase58Data(base58_address)
+        except bitcoin.base58.Base58ChecksumError:
+            raise colorcore.routing.ControllerError("Invalid asset ID.")
 
-        if not isinstance(address, bitcoin.wallet.P2SHBitcoinAddress):
-            raise colorcore.routing.ControllerError("Invalid asset address.")
+        if address.nVersion != self.asset_byte or len(address) != 20:
+            raise colorcore.routing.ControllerError("Invalid asset ID.")
 
-        return address.to_bytes()
+        return bytes(address)
 
-    @staticmethod
-    def asset_address_to_base58(asset_address):
+    def asset_id_to_base58(self, asset_id):
         """
-        Returns the base58 representation of an asset address.
+        Returns the base58 representation of an asset ID.
 
-        :param bytes asset_address: The asset address.
-        :return: The base58 representation of the asset address.
+        :param bytes asset_id: The asset ID.
+        :return: The base58 representation of the asset ID.
         :rtype: str
         """
-        return str(bitcoin.wallet.P2SHBitcoinAddress.from_bytes(asset_address))
+        return str(bitcoin.base58.CBase58Data.from_bytes(asset_id, self.asset_byte))
 
     @staticmethod
     def script_to_address(script):
