@@ -365,27 +365,27 @@ class Convert(object):
     def to_coin(satoshis):
         return '{0:.8f}'.format(decimal.Decimal(satoshis) / decimal.Decimal(bitcoin.core.COIN))
 
-    def base58_to_asset_id(self, base58_address):
+    def base58_to_asset_id(self, base58_asset_id):
         """
         Parses a base58 asset ID into its bytes representation.
 
-        :param str base58_address: The base58 asset address.
+        :param str base58_asset_id: The asset ID in base 58 representation.
         :return: The byte representation of the asset ID.
         :rtype: bytes
         """
         try:
-            address = bitcoin.base58.CBase58Data(base58_address)
+            asset_id = bitcoin.base58.CBase58Data(base58_asset_id)
         except bitcoin.base58.Base58ChecksumError:
             raise colorcore.routing.ControllerError("Invalid asset ID.")
 
-        if address.nVersion != self.asset_byte or len(address) != 20:
+        if asset_id.nVersion != self.asset_byte or len(asset_id) != 20:
             raise colorcore.routing.ControllerError("Invalid asset ID.")
 
-        return bytes(address)
+        return bytes(asset_id)
 
     def asset_id_to_base58(self, asset_id):
         """
-        Returns the base58 representation of an asset ID.
+        Returns the base 58 representation of an asset ID.
 
         :param bytes asset_id: The asset ID.
         :return: The base58 representation of the asset ID.

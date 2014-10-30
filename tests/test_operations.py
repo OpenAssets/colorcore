@@ -651,18 +651,18 @@ class ConvertTests(unittest.TestCase):
     def setUp(self):
         bitcoin.SelectParams('mainnet')
 
-    def test_base58_to_asset_address_success(self):
+    def test_base58_to_asset_id_success(self):
          result = self.create_converter().base58_to_asset_id('ALn3aK1fSuG27N96UGYB1kUYUpGKRhBuBC')
 
          self.assertEqual(bitcoin.core.x('36e0ea8e93eaa0285d641305f4c81e563aa570a2'), result)
 
-    def test_base58_to_asset_address_invalid_version(self):
+    def test_base58_to_asset_id_invalid_version(self):
          self.assertRaises(
              colorcore.routing.ControllerError,
              self.create_converter().base58_to_asset_id,
              '1AaaBxiLVzo1xZSFpAw3Zm9YBYAYQgQuuU')
 
-    def test_base58_to_asset_address_invalid_address(self):
+    def test_base58_to_asset_id_invalid_address(self):
          self.assertRaises(
              colorcore.routing.ControllerError,
              self.create_converter().base58_to_asset_id,
@@ -679,7 +679,7 @@ class ConvertTests(unittest.TestCase):
 
         self.assertEqual('Unknown script', result)
 
-    def test_asset_address_to_base58(self):
+    def test_asset_id_to_base58(self):
          target = self.create_converter()
 
          result = target.asset_id_to_base58(
