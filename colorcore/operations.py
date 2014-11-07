@@ -192,7 +192,7 @@ class Controller(object):
         from_address = self._as_any_address(address)
 
         if to is None:
-            to_address = self._as_any_address(from_address)
+            to_address = self._as_any_address(address)
         else:
             to_address = self._as_openassets_address(to)
 

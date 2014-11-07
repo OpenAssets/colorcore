@@ -435,6 +435,38 @@ class ControllerTests(unittest.TestCase):
         result)
 
     @helpers.async_test
+    def test_issueasset_defaults(self, *args, loop):
+        self.setup_mocks(loop, [
+            (5, self.addresses[0].script(), None, 0),
+            (35, self.addresses[0].script(), None, 0)
+        ])
+
+        target = self.create_controller()
+
+        result = yield from target.issueasset(
+            address=self.addresses[0].address,
+            amount='100',
+            mode='unsigned')
+
+        self.assert_response({
+            'version': 1,
+            'locktime': 0,
+            'vin': [
+                self.get_input(0, self.addresses[0]),
+                self.get_input(1, self.addresses[0])
+            ],
+            'vout': [
+                # Asset issued
+                self.get_output(10, 0, self.addresses[0]),
+                # Marker output
+                self.get_marker_output(1, [100], b''),
+                # Bitcoin change
+                self.get_output(15, 2, self.addresses[0])
+            ]
+        },
+        result)
+
+    @helpers.async_test
     def test_issueasset_invalid_address(self, *args, loop):
         target = self.create_controller()
 
