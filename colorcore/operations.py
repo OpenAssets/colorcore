@@ -111,10 +111,18 @@ class Controller(object):
 
         table = []
         for output in unspent_outputs:
+            parsed_address = self.convert.script_to_address(output.output.script)
+            if parsed_address is not None:
+                oa_address = str(colorcore.addresses.Base58Address(
+                    parsed_address, parsed_address.nVersion, self.configuration.namespace))
+            else:
+                oa_address = None
+
             table.append({
                 'txid': bitcoin.core.b2lx(output.out_point.hash),
                 'vout': output.out_point.n,
                 'address': self.convert.script_to_display_string(output.output.script),
+                'oa_address': oa_address,
                 'script': bitcoin.core.b2x(output.output.script),
                 'amount': self.convert.to_coin(output.output.value),
                 'confirmations': output.confirmations,
