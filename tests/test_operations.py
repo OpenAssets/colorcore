@@ -121,6 +121,35 @@ class ControllerTests(unittest.TestCase):
             ],
             result)
 
+    @helpers.async_test
+    def test_getbalance_empty(self, *args, loop):
+        self.setup_mocks(loop, [])
+
+        target = self.create_controller()
+
+        result1 = yield from target.getbalance(self.addresses[0].address)
+        result2 = yield from target.getbalance(self.addresses[0].oa_address)
+
+        self.assert_response([
+                {
+                    'address': self.addresses[0].address,
+                    'oa_address': self.addresses[0].oa_address,
+                    'value': '0.00000000',
+                    'assets': []
+                }
+            ],
+            result1)
+
+        self.assert_response([
+                {
+                    'address': self.addresses[0].address,
+                    'oa_address': self.addresses[0].oa_address,
+                    'value': '0.00000000',
+                    'assets': []
+                }
+            ],
+            result2)
+
     # listunspent
 
     @helpers.async_test

@@ -62,10 +62,15 @@ class Controller(object):
         colored_outputs = [output.output for output in unspent_outputs]
 
         sorted_outputs = sorted(colored_outputs, key=lambda output: output.script)
+        output_groups = [
+            (script, list(group)) for (script, group)
+            in itertools.groupby(sorted_outputs, lambda output: output.script)]
+
+        if not output_groups and address is not None:
+            output_groups.append((from_address.to_scriptPubKey(), []))
 
         table = []
-        for script, group in itertools.groupby(sorted_outputs, lambda output: output.script):
-            script_outputs = list(group)
+        for script, script_outputs in output_groups:
             total_value = self.convert.to_coin(sum([item.value for item in script_outputs]))
 
             address = self.convert.script_to_address(script)
